@@ -32,6 +32,54 @@
     if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
     return { lat: +lat.toFixed(6), lng: +lng.toFixed(6) };
   };
+  /* ลิงก์เส้นทาง Google Maps (google.com/maps/dir/...) → จุดทั้งหมดตามลำดับ [{lat,lng}]
+     - จุดหลักอยู่ใน path: /dir/12.64,101.34/12.65,101.32/...
+     - จุดที่ลากเส้นให้อ้อม (via) อยู่ใน data: !4m..!4m..!1m0!1m5!3m4!1m2!1d<lng>!2d<lat>... ต่อท้ายจุดหลักที่มันตามมา
+     - จุดที่เป็นชื่อสถานที่: ใช้พิกัดใน data (!2m2!1d<lng>!2d<lat>) */
+  AI.gmapRoute = function (url) {
+    url = String(url || '').trim();
+    if (!/\/maps\/dir\//.test(url)) return null;
+    let path = url.split('/maps/dir/')[1].split(/[?#]/)[0];
+    const segs = [];
+    path.split('/').some(function (s) {
+      if (!s || /^@/.test(s) || /^data=/.test(s)) return true;
+      let t = s; try { t = decodeURIComponent(s.replace(/\+/g, ' ')); } catch (e) { /* ใช้ตามเดิม */ }
+      const m = t.match(/^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/);
+      segs.push(m ? { lat: +(+m[1]).toFixed(6), lng: +(+m[2]).toFixed(6) } : null);
+      return false;
+    });
+    // อ่านรายการจุดใน data
+    const dm = url.match(/data=([^?&#]*)/), vias = {}, locs = {};
+    if (dm) {
+      const tk = dm[1].split('!').filter(Boolean);
+      let i = 0;
+      while (i < tk.length - 1 && !(/^4m\d+$/.test(tk[i]) && /^4m\d+$/.test(tk[i + 1]))) i++;
+      if (i < tk.length - 1) {
+        i += 2;
+        for (let w = 0; i < tk.length && /^1m\d+$/.test(tk[i]); w++) {
+          const n = +tk[i].slice(2), sub = tk.slice(i + 1, i + 1 + n);
+          let inVia = false;
+          for (let j = 0; j < sub.length - 1; j++) {
+            if (/^3m\d+$/.test(sub[j])) inVia = true;
+            const a = sub[j].match(/^1d(-?\d+\.?\d*)$/), b = sub[j + 1].match(/^2d(-?\d+\.?\d*)$/);
+            if (a && b) {
+              const q = { lat: +(+b[1]).toFixed(6), lng: +(+a[1]).toFixed(6) };
+              if (inVia) (vias[w] = vias[w] || []).push(q); else locs[w] = q;
+              j++;
+            }
+          }
+          i += 1 + n;
+        }
+      }
+    }
+    const out = [];
+    segs.forEach(function (p, w) {
+      p = p || locs[w];
+      if (p) out.push(p);
+      (vias[w] || []).forEach(function (v) { out.push(v); });
+    });
+    return out.length >= 2 ? out : null;
+  };
   function km(s) { const m = String(s || '').match(/(\d{1,4})\s*\+\s*(\d{3})/); return m ? m[1] + '+' + m[2] : ''; }
   function cleanName(s) {
     return String(s || '')

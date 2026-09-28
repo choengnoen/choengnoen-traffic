@@ -367,6 +367,36 @@
       '<div class="field span-all"><div class="pt-ll"><input data-ll="' + path + '" value="' + esc(ll) + '" placeholder="พิกัด 12.77, 101.71 หรือวางลิงก์ Google Maps">' +
       '<button class="btn btn-sm btn-outline" data-pick="' + path + '" data-label="' + esc(label) + '" title="คลิกเลือกตำแหน่งบนแผนที่">📍</button></div></div></div></div>';
   }
+  // ช่องวางลิงก์เส้นทาง Google Maps ของทางเบี่ยง (มีลิงก์ = ใช้เส้นทางตามที่ร่างไว้ ไม่ให้ระบบหาเอง)
+  function gmapRow(key) {
+    const r = S.cur[key] || {}, n = r.gmap ? (r.via || []).length + 2 : 0;
+    return '<div class="field gmap-f" style="margin-bottom:8px"><label>🔗 ลิงก์เส้นทาง Google Maps (ไม่บังคับ)' +
+      (r.gmap ? '<span class="pt-ok">✓ ใช้เส้นทางตามลิงก์ ' + n + ' จุด</span>' : '') + '</label>' +
+      '<div class="pt-ll"><input data-gmap="' + key + '" value="' + esc(r.gmap || '') + '" placeholder="วางลิงก์ google.com/maps/dir/... ที่ร่างเส้นทางไว้">' +
+      (r.gmap ? '<button type="button" class="btn btn-sm btn-outline" data-gmapclr="' + key + '" title="เลิกใช้ลิงก์ ให้ระบบหาทางเบี่ยงเอง">✕</button>' : '') + '</div>' +
+      '<span class="hint">ร่างเส้นทางใน Google Maps (เพิ่มจุด/ลากเส้นได้) แล้วคัดลอกลิงก์จากช่องที่อยู่ของเบราว์เซอร์มาวาง · จุดแรก = แยกออก จุดสุดท้าย = กลับเข้า</span></div>';
+  }
+  function setGmap(key, text) {
+    const r = S.cur[key] = S.cur[key] || { a: pt(), b: pt(), via: [] };
+    text = String(text || '').trim();
+    if (!text) { delete r.gmap; r.via = []; markDirty(); renderForm(); status('เลิกใช้ลิงก์แล้ว — กด ⚡ สร้างผังอัตโนมัติ ให้ระบบหาทางเบี่ยงเอง'); return; }
+    if (/goo\.gl|maps\.app/.test(text)) { toast('ลิงก์แบบย่อ (maps.app.goo.gl) อ่านไม่ได้ — เปิดลิงก์ในเบราว์เซอร์ แล้วคัดลอกลิงก์ยาวจากช่องที่อยู่มาวาง', true); return; }
+    const pts = AI.gmapRoute(text);
+    if (!pts) { toast('อ่านลิงก์ไม่ได้ — ต้องเป็นลิงก์เส้นทาง google.com/maps/dir/... ที่มีอย่างน้อย 2 จุด', true); return; }
+    r.gmap = text;
+    r.a = Object.assign(r.a || pt(), pts[0]);
+    r.b = Object.assign(r.b || pt(), pts[pts.length - 1]);
+    r.via = pts.slice(1, -1);
+    S.cur[key + 'Line'] = '';
+    remember(S.cur); markDirty(); renderForm(); P.draw();
+    status('อ่านเส้นทางจากลิงก์ได้ ' + pts.length + ' จุด — กด ⚡ สร้างผังอัตโนมัติ เพื่อลากเส้นตามถนน');
+  }
+  // ทางเบี่ยงตามจุดที่ร่างไว้ในลิงก์ (ลากตามถนนผ่านทุกจุด) + เตือนถ้าผ่านจุดน้ำท่วม
+  async function fixedDetour(r, segs) {
+    const res = await RT.route([r.a].concat(r.via || [], [r.b]), r.side);
+    const hit = segs.some(function (s) { return RT.overlap(s.length > 1 ? s : [s[0], s[0]], res.pts) >= 0.08; });
+    return { pts: res.pts, distance: res.distance, via: r.via || [], warn: hit ? 'เส้นทางตามลิงก์ผ่านช่วงน้ำท่วม — ตรวจสอบลิงก์อีกครั้ง' : '' };
+  }
   // ช่องพิกัดแบบย่อ (ใช้ในการ์ดจุดน้ำท่วม)
   function llField(path, label) {
     const p = getP(S.cur, path) || pt();
@@ -431,9 +461,9 @@
         segCard(0) + (p.floods2 || []).map(function (s, i) { return segCard(i + 1); }).join('') +
         '<button type="button" class="btn btn-sm btn-outline" id="fxAdd">+ เพิ่มจุดน้ำท่วม</button></div>';
       h += '<div class="card"><div class="section-title"><span class="step-no">2</span> ทางเบี่ยง <span class="sub">ระบบหาเส้นทางที่ไม่ผ่านจุดน้ำท่วมทุกจุดให้เอง</span></div>' +
-        '<div class="seg det"><div class="seg-h">🔵 ทางเบี่ยงที่ 1</div>' + ptRow('detour.a', 'จุดแยกออก (เข้าทางเบี่ยง)') + ptRow('detour.b', 'จุดกลับเข้าทางหลัก') + '</div>' +
+        '<div class="seg det"><div class="seg-h">🔵 ทางเบี่ยงที่ 1</div>' + gmapRow('detour') + ptRow('detour.a', 'จุดแยกออก (เข้าทางเบี่ยง)') + ptRow('detour.b', 'จุดกลับเข้าทางหลัก') + '</div>' +
         (p.detour2
-          ? '<div class="seg det2"><div class="seg-h">🟣 ทางเบี่ยงที่ 2 <button type="button" class="btn btn-sm btn-danger" id="det2Del">ลบทางเบี่ยงที่ 2</button></div>' + ptRow('detour2.a', 'จุดแยกออก (เข้าทางเบี่ยงที่ 2)') + ptRow('detour2.b', 'จุดกลับเข้าทางหลัก') + '</div>'
+          ? '<div class="seg det2"><div class="seg-h">🟣 ทางเบี่ยงที่ 2 <button type="button" class="btn btn-sm btn-danger" id="det2Del">ลบทางเบี่ยงที่ 2</button></div>' + gmapRow('detour2') + ptRow('detour2.a', 'จุดแยกออก (เข้าทางเบี่ยงที่ 2)') + ptRow('detour2.b', 'จุดกลับเข้าทางหลัก') + '</div>'
           : '<button type="button" class="btn btn-sm btn-outline" id="det2Add" style="margin-bottom:10px">+ เพิ่มทางเบี่ยงที่ 2</button>') +
         '<div class="grid grid-2">' + fld('ลูกศรฝั่งซ้ายของผัง', 'dirLeft', { ph: 'เช่น ไปบ้านค่าย' }) + fld('ลูกศรฝั่งขวาของผัง', 'dirRight', { ph: 'เช่น ไประยอง' }) + '</div></div>';
       h += buildRow;
@@ -556,6 +586,12 @@
     });
     el.querySelectorAll('[data-ll]').forEach(function (inp) {
       inp.addEventListener('change', function () { setCoord(inp.dataset.ll, inp.value); });
+    });
+    el.querySelectorAll('[data-gmap]').forEach(function (inp) {
+      inp.addEventListener('change', function () { setGmap(inp.dataset.gmap, inp.value); });
+    });
+    el.querySelectorAll('[data-gmapclr]').forEach(function (b) {
+      b.onclick = function () { setGmap(b.dataset.gmapclr, ''); };
     });
     // พิมพ์ชื่อจุดที่เคยลงพิกัดไว้ → เติมพิกัดให้เอง (เฉพาะจุดที่ยังไม่มีพิกัด)
     el.querySelectorAll('[data-k$=".name"]').forEach(function (inp) {
@@ -822,11 +858,12 @@
           segs.push(r.pts);
         }
         // ทางเบี่ยงต้องไม่ผ่านจุดน้ำท่วมใดเลย
-        const d = await RT.autoDetour(p.detour.a, p.detour.b, segs, status);
+        if (p.detour.gmap) status('กำลังลากทางเบี่ยงตามลิงก์ Google Maps...');
+        const d = p.detour.gmap ? await fixedDetour(p.detour, segs) : await RT.autoDetour(p.detour.a, p.detour.b, segs, status);
         p.detourLine = RT.encode(d.pts); p.detourLen = d.distance; p.detour.via = d.via || [];
         if (p.detour2) {
           status('กำลังหาทางเบี่ยงที่ 2...');
-          const d2 = await RT.autoDetour(p.detour2.a, p.detour2.b, segs, status);
+          const d2 = p.detour2.gmap ? await fixedDetour(p.detour2, segs) : await RT.autoDetour(p.detour2.a, p.detour2.b, segs, status);
           p.detour2Line = RT.encode(d2.pts); p.detour2Len = d2.distance; p.detour2.via = d2.via || [];
           if (d2.warn && !d.warn) d.warn = 'ทางเบี่ยงที่ 2: ' + d2.warn;
         }
@@ -835,7 +872,7 @@
           p.dirLeft = 'ไป' + s[0]; p.dirRight = 'ไป' + s[1];
         }
         P.draw(); P.fit(); P.autoLabels();
-        status(d.warn ? d.warn : 'สร้างผังแล้ว — ทางเบี่ยง ' + fmtKm(d.distance) + (d.via.length ? ' (ระบบบังคับให้อ้อมเพื่อไม่ผ่านช่วงน้ำท่วม)' : '') + ' · ตรวจสอบกับสภาพจริง แล้วลากปรับได้', !!d.warn);
+        status(d.warn ? d.warn : 'สร้างผังแล้ว — ทางเบี่ยง ' + fmtKm(d.distance) + (p.detour.gmap ? ' (ตามลิงก์ Google Maps)' : d.via.length ? ' (ระบบบังคับให้อ้อมเพื่อไม่ผ่านช่วงน้ำท่วม)' : '') + ' · ตรวจสอบกับสภาพจริง แล้วลากปรับได้', !!d.warn);
       }
       if (p.kind === 'safety') {
         status('กำลังลากเขตงานตามถนน...');
