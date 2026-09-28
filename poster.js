@@ -401,6 +401,7 @@
     drawRef();
     layers.clearLayers();
     plan.pos = plan.pos || {};
+    lblReg = [];
     if (isSafety()) drawSafety(); else drawFlood();
     drawLabels();
     drawChevrons();
@@ -514,6 +515,7 @@
   }
 
   /* ---------- ป้าย ---------- */
+  let lblReg = [];   // ป้ายที่วาดอยู่ขณะนี้ (ใช้ตอนจัดป้ายไม่ให้ทับกัน)
   // ป้ายย่อ/ขยายได้: ชี้เมาส์ที่ป้ายแล้วกด ＋ / － (เก็บใน plan.pos[key].sc) · ลูกศรบอกทิศใช้ปุ่มหมุนของตัวเอง
   function scaledHtml(key, html) {
     if (html.indexOf('<div class="pz-dirwrap"') === 0) return html;
@@ -521,7 +523,8 @@
     return '<div class="pz-lwrap" style="transform:translate(-50%,-50%) scale(' + sc + ')">' + html +
       '<div class="pz-zm"><span data-z="1.1" title="ขยายป้าย">＋</span><span data-z="0.9" title="ย่อป้าย">－</span></div></div>';
   }
-  function labelMarker(key, ll, html, anchorLL, leaderStyle) {
+  // home = จุดที่ป้ายนี้หมายถึง (ป้ายที่ไม่มีเส้นโยง) — ถ้าป้ายถูกย้ายห่างจากจุดเกิน 110 พิกเซล จะมีเส้นโยงสีขาวบอกให้รู้ว่าหมายถึงตรงไหน
+  function labelMarker(key, ll, html, anchorLL, leaderStyle, home) {
     const m = L.marker(ll, { draggable: true, keyboard: false, zIndexOffset: 1000,
       icon: L.divIcon({ className: 'pz-lbl', iconSize: [0, 0], html: scaledHtml(key, html) }) });
     m.on('click', function (e) {
@@ -533,8 +536,17 @@
       changed('pos');
     });
     let leader = null;
-    if (anchorLL) leader = L.polyline([anchorLL, ll], Object.assign({ color: RED, weight: 2.5, interactive: false }, leaderStyle || {})).addTo(layers);
-    m.on('drag', function () { if (leader) leader.setLatLngs([anchorLL, m.getLatLng()]); });
+    const tip = anchorLL || home || null, soft = !anchorLL;
+    const lead = function (l) {
+      if (!tip) return;
+      const show = !soft || px(tip).distanceTo(px(l)) > 110;
+      if (show && !leader) leader = L.polyline([tip, l], Object.assign({ color: RED, weight: 2.5, interactive: false }, soft ? { color: '#fff', weight: 3 } : leaderStyle || {})).addTo(layers);
+      else if (!show && leader) { layers.removeLayer(leader); leader = null; }
+      if (leader) leader.setLatLngs([tip, l]);
+    };
+    lead(LL(ll));
+    m.on('drag', function () { lead(m.getLatLng()); });
+    lblReg.push({ key: key, m: m, tip: tip, lead: !!anchorLL });
     m.on('dragend', function () { const l = m.getLatLng(); plan.pos[key] = Object.assign({}, plan.pos[key] || {}, { lat: l.lat, lng: l.lng }); changed('pos'); });
     m.addTo(layers);
     return m;
@@ -590,7 +602,7 @@
     const multiRoad = !isSafety() && P.roads(plan).length > 1;
     const kmHtml = function (road, km) { return '<div class="pz-km">' + (multiRoad && road ? 'ทล.' + esc(road) + ' ' : '') + 'กม.' + esc(km) + '</div>'; };
     if (mp.length > 1) {
-      if (pos.place && (plan.place || r.depth)) labelMarker('place', LL(pos.place), placeHtml(plan.place, r.depth));
+      if (pos.place && (plan.place || r.depth)) labelMarker('place', LL(pos.place), placeHtml(plan.place, r.depth), null, null, LL(mid(mp)));
       if (pos.kmA && r.a.km) labelMarker('kmA', LL(pos.kmA), kmHtml(plan.road, r.a.km), LL(mp[0]));
       if (pos.kmB && r.b.km) labelMarker('kmB', LL(pos.kmB), kmHtml(plan.road, r.b.km), LL(mp[mp.length - 1]));
     }
@@ -598,7 +610,7 @@
     extras().forEach(function (s, i) {
       const k = 'fx' + i, ep = linePts(k), anc = ep.length > 1 ? ep : has(s.a) ? [s.a] : [], road = s.road || plan.road;
       if (!anc.length) return;
-      if (pos[k] && (s.place || s.depth)) labelMarker(k, LL(pos[k]), placeHtml(s.place, s.depth));
+      if (pos[k] && (s.place || s.depth)) labelMarker(k, LL(pos[k]), placeHtml(s.place, s.depth), null, null, LL(mid(anc)));
       if (pos[k + 'a'] && s.a.km) labelMarker(k + 'a', LL(pos[k + 'a']), kmHtml(road, s.a.km), LL(anc[0]));
       if (pos[k + 'b'] && s.b.km && anc.length > 1) labelMarker(k + 'b', LL(pos[k + 'b']), kmHtml(road, s.b.km), LL(anc[anc.length - 1]));
     });
@@ -608,7 +620,7 @@
       if (x[2].length < 2 || !pos[x[0]] || !(d.name || d.km)) return;
       const txt = [d.name, d.km ? 'กม.' + d.km : ''].filter(Boolean).join(' ');
       const two = x[0].indexOf('det2') === 0;
-      labelMarker(x[0], LL(pos[x[0]]), '<div class="pz-stack"><div class="pz-box"' + (two ? ' style="color:' + PURPLE + '"' : '') + '>' + (two ? 'ทางเบี่ยงที่ 2' : det2.length ? 'ทางเบี่ยงที่ 1' : 'ทางเบี่ยง') + '</div><div class="pz-box">' + esc(txt) + '</div></div>');
+      labelMarker(x[0], LL(pos[x[0]]), '<div class="pz-stack"><div class="pz-box"' + (two ? ' style="color:' + PURPLE + '"' : '') + '>' + (two ? 'ทางเบี่ยงที่ 2' : det2.length ? 'ทางเบี่ยงที่ 1' : 'ทางเบี่ยง') + '</div><div class="pz-box">' + esc(txt) + '</div></div>', null, null, has(d) ? LL(d) : null);
     });
     [['arrL', plan.dirLeft, true], ['arrR', plan.dirRight, false]].forEach(function (x) {
       const p = pos[x[0]];
@@ -631,8 +643,117 @@
     // จัดตำแหน่งใหม่แต่คงขนาดป้ายที่ผู้ใช้ย่อ/ขยายไว้
     Object.keys(plan.pos).forEach(function (k) { if (old[k] && old[k].sc) plan.pos[k].sc = old[k].sc; });
     P.draw();
+    if (declutter()) P.draw();
     changed('pos');
   };
+
+  // จัดป้ายไม่ให้ทับกัน: วัดขนาดป้ายจริงบนจอ แล้วลองวางรอบจุดที่ป้ายหมายถึงหลายทิศหลายระยะ
+  // เลือกตำแหน่งที่ไม่ทับป้ายอื่น / กล่องคำอธิบาย / เส้นทาง / จุดปลายเส้น และอยู่ใกล้จุดที่สุด
+  function declutter() {
+    const size = map.getSize(), mc = map.getContainer(), mr = mc.getBoundingClientRect();
+    const s = mr.width / (mc.offsetWidth || 1);
+    if (!size.x || !size.y || !s || !lblReg.length) return false;
+    const box = function (r) { return { x0: (r.left - mr.left) / s, y0: (r.top - mr.top) / s, x1: (r.right - mr.left) / s, y1: (r.bottom - mr.top) / s }; };
+    const ov = function (a, b) { const w = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), h = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0); return w > 0 && h > 0 ? w * h : 0; };
+    const inR = function (R, x, y, pad) { return x > R.x0 - pad && x < R.x1 + pad && y > R.y0 - pad && y < R.y1 + pad; };
+    // กล่องที่วางทับแผนที่ (ขออภัย / คำอธิบาย / ทิศเหนือ / ปุ่มซูม ฯลฯ)
+    const blocks = [];
+    mc.parentNode.querySelectorAll('.pz-br > *, .pz-abanner, .pz-afoot, .pz-ilegend, .pz-north, .leaflet-control').forEach(function (el) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 2 && r.height > 2) blocks.push(box(r));
+    });
+    // จุดบนเส้นทาง (ทุก ~14 พิกเซล) — ป้ายทับเส้นแดงเสียมากกว่าทับเส้นทางเบี่ยง
+    const pts = [], hard = [];
+    const addLine = function (arr, w) {
+      const p = arr.map(px);
+      if (p.length) { hard.push(p[0], p[p.length - 1]); }
+      for (let i = 0; i < p.length; i++) {
+        pts.push({ x: p[i].x, y: p[i].y, w: w });
+        if (!i) continue;
+        const a = p[i - 1], b = p[i], n = Math.floor(a.distanceTo(b) / 14);
+        for (let j = 1; j < n; j++) pts.push({ x: a.x + (b.x - a.x) * j / n, y: a.y + (b.y - a.y) * j / n, w: w });
+      }
+    };
+    addLine(linePts(mainKey()), 120);
+    extras().forEach(function (x, i) { const ep = linePts('fx' + i); if (ep.length > 1) addLine(ep, 120); else if (has(x.a)) hard.push(px(x.a)); });
+    if (!isSafety()) { addLine(linePts('detour'), 45); if (hasDet2()) addLine(linePts('detour2'), 45); }
+    (plan.devices || []).filter(has).forEach(function (d) { const p = px(d); pts.push({ x: p.x, y: p.y, w: 40 }); });
+    // ป้ายแต่ละอัน: ขนาดจริง + จุดที่หมายถึง
+    const items = lblReg.map(function (o) {
+      const el = o.m.getElement(), c = el && el.firstElementChild;
+      if (!c) return null;
+      const b = box(c.getBoundingClientRect()), cur = px(o.m.getLatLng());
+      if (b.x1 - b.x0 < 2) return null;
+      const tip = o.tip ? px(o.tip) : null;
+      if (tip) hard.push(tip);
+      return { o: o, w: b.x1 - b.x0, h: b.y1 - b.y0, dx: (b.x0 + b.x1) / 2 - cur.x, dy: (b.y0 + b.y1) / 2 - cur.y, cur: cur, tip: tip, lead: o.lead, c: cur };
+    }).filter(Boolean);
+    if (!items.length) return false;
+    const rectAt = function (it, c) { return { x0: c.x + it.dx - it.w / 2 - 6, y0: c.y + it.dy - it.h / 2 - 6, x1: c.x + it.dx + it.w / 2 + 6, y1: c.y + it.dy + it.h / 2 + 6 }; };
+    const clamp = function (it, c) {
+      const hx = it.w / 2 + 8, hy = it.h / 2 + 8;
+      return { x: hx * 2 > size.x ? size.x / 2 : Math.max(hx, Math.min(size.x - hx, c.x + it.dx)) - it.dx,
+               y: hy * 2 > size.y ? size.y / 2 : Math.max(hy, Math.min(size.y - hy, c.y + it.dy)) - it.dy, bonus: c.bonus || 0 };
+    };
+    const segHitsRect = function (a, b, R) {
+      const n = Math.max(2, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 10));
+      for (let j = 1; j < n; j++) if (inR(R, a.x + (b.x - a.x) * j / n, a.y + (b.y - a.y) * j / n, 0)) return true;
+      return false;
+    };
+    const cross = function (a, b, c, d) {
+      const o = function (p, q, r) { return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x); };
+      return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
+    };
+    const cands = function (it) {
+      const out = [clamp(it, { x: it.cur.x, y: it.cur.y, bonus: -40 })];
+      const t = it.tip || it.cur, rs = it.tip ? [0, 40, 90, 150, 230, 320] : [30, 60, 100, 150];
+      for (let k = 0; k < 16; k++) {
+        const a = k * Math.PI / 8, ux = Math.cos(a), uy = Math.sin(a);
+        const clr = it.tip ? Math.abs(ux) * it.w / 2 + Math.abs(uy) * it.h / 2 + 26 : 0;
+        rs.forEach(function (r) { out.push(clamp(it, { x: t.x + ux * (clr + r) - it.dx, y: t.y + uy * (clr + r) - it.dy })); });
+      }
+      return out;
+    };
+    const score = function (it, c, others) {
+      const R = rectAt(it, c);
+      let sc = c.bonus;
+      others.forEach(function (p) {
+        const a = ov(R, p.R);
+        if (a) sc += 20000 + a * 20;
+        if (it.lead && segHitsRect(it.tip, c, p.R)) sc += 3000;
+        if (p.it.lead && segHitsRect(p.it.tip, p.c, R)) sc += 3000;
+        if (it.lead && p.it.lead && cross(it.tip, c, p.it.tip, p.c)) sc += 1500;
+      });
+      blocks.forEach(function (b) { const a = ov(R, b); if (a) sc += 20000 + a * 20; });
+      pts.forEach(function (p) { if (inR(R, p.x, p.y, 0)) sc += p.w; });
+      hard.forEach(function (h) { if (inR(R, h.x, h.y, 10)) sc += 6000; });
+      const ref = it.tip || it.cur;
+      sc += Math.hypot(c.x - ref.x, c.y - ref.y) * (it.lead ? 1.5 : 3);
+      return sc;
+    };
+    const best = function (it, others) {
+      let bc = null, bs = Infinity;
+      cands(it).forEach(function (c) { const v = score(it, c, others); if (v < bs) { bs = v; bc = c; } });
+      return bc;
+    };
+    // ลำดับ: ชื่อบริเวณ/ระดับน้ำ → ป้าย กม. → ทางเบี่ยง → ลูกศรบอกทิศ (ป้ายสำคัญได้ที่ดีก่อน)
+    const rank = function (k) { return /^(place|fx\d+|cR|cG|srcL|outL)$/.test(k) ? 0 : /^arr/.test(k) ? 3 : /^det/.test(k) ? 2 : 1; };
+    items.sort(function (a, b) { return rank(a.o.key) - rank(b.o.key); });
+    const done = [];
+    items.forEach(function (it) { it.c = best(it, done); done.push({ it: it, c: it.c, R: rectAt(it, it.c) }); });
+    // รอบสอง: ปรับแต่ละป้ายอีกครั้งโดยเห็นตำแหน่งป้ายอื่นทั้งหมดแล้ว
+    for (let pass = 0; pass < 2; pass++) {
+      done.forEach(function (d) {
+        const others = done.filter(function (x) { return x !== d; });
+        d.c = d.it.c = best(d.it, others); d.R = rectAt(d.it, d.c);
+      });
+    }
+    done.forEach(function (d) {
+      const k = d.it.o.key;
+      plan.pos[k] = Object.assign({}, plan.pos[k] || {}, geo(L.point(d.c.x, d.c.y)));
+    });
+    return true;
+  }
   function autoPos() {
     const pos = plan.pos = {}, st = style();
     const mp = linePts(mainKey()), dp = isSafety() ? [] : linePts('detour');
