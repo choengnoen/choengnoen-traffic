@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "traffic-plan",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\acer\\AppData\\Local\\Temp\\claude\\D-------------------5------------------------------0------------------------------2-------------------------------4----------------------\\227e6d16-7420-4aa2-b3ed-d6743c046e78\\scratchpad\\serve.ps1", "-Root", "D:\\แขวงทางหลวงระยอง 5. งานหมวด\\หมวดทางหลวงเชิงเนิน\\0. งาน หมวด\\ศูนย์รวมข้อมูลระบบ\\2. งานคุณนันท์นภัสธ์ รัตนเสถียร\\4. ผังจราจรและทางเบี่ยง\\0. Firebase Project_project-choengnoen (3-3)"],
+      "port": 8765
+    },
+    {
+      "name": "traffic-plan-ref",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\acer\\AppData\\Local\\Temp\\claude\\D-------------------5------------------------------0------------------------------2-------------------------------4----------------------\\71bf4b5e-603b-438a-862d-9a7b41c11f63\\scratchpad\\serve.ps1", "-Port", "8766"],
+      "port": 8766
+    }
+  ]
+}

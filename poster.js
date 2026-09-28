@@ -66,6 +66,7 @@
   const P = window.Poster = { DEV: DEV, devSvg: devSvg, STY: STY, ICON: ICON, DEV_SAFETY: DEV_SAFETY, DEV_DRAIN: DEV_DRAIN, DEV_FLOOD: DEV_FLOOD };
   const DRAIN = '#00b0ff', WATER = '#4fc3f7';
   let map, sheet, stage, plan, onChange, layers, deco, handles, selected = null, bases, placing = null;
+  let refBack, refPts, refKey = '';
 
   /* ---------- ตัวช่วย ---------- */
   function kmNum(s) {
@@ -283,6 +284,12 @@
       // แผนที่แบบ Google: ซ่อนหมุดร้านค้า/ร้านอาหาร/โรงแรม (poi.business) และป้ายขนส่ง เหลือหมุดสำคัญ เช่น โรงพยาบาล วัด โรงเรียน หน่วยงานราชการ
       gmap: L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&hl=th&x={x}&y={y}&z={z}&scale=2&apistyle=s.t%3A33%7Cp.v%3Aoff%2Cs.t%3A40%7Cp.v%3Aoff', Object.assign({ attribution: '© Google', subdomains: '0123' }, opt, { maxNativeZoom: 20 }))
     };
+    // ชั้นข้อมูลอ้างอิงอยู่ใต้เส้นของผัง (overlayPane = 400)
+    map.createPane('refTb').style.zIndex = 380;
+    map.getPane('refTb').style.pointerEvents = 'none';
+    map.createPane('refRt').style.zIndex = 390;
+    refBack = L.layerGroup().addTo(map);
+    refPts = L.layerGroup().addTo(map);
     layers = L.layerGroup().addTo(map);
     deco = L.layerGroup().addTo(map);
     handles = L.layerGroup().addTo(map);
@@ -290,7 +297,7 @@
     map.on('moveend', function () { if (plan) { const c = map.getCenter(); plan.view = { lat: c.lat, lng: c.lng, zoom: map.getZoom() }; changed('view'); } });
     map.on('zoomend', drawChevrons);
     map.on('click', function (e) {
-      if (P.onPick) { const f = P.onPick; P.onPick = null; sheet.classList.remove('placing'); f(e.latlng); return; }
+      if (P.onPick) { const f = P.onPick; P.onPick = null; sheet.classList.remove('placing'); drawRef(); f(e.latlng); return; }
       if (placing) { placeAt(e.latlng); return; }
       if (selected) select(null);
     });
@@ -309,7 +316,7 @@
 
   /* ---------- วาดทั้งหมดจากข้อมูลผัง ---------- */
   P.setPlan = function (p, cb) {
-    plan = p; onChange = cb; selected = null; placing = null;
+    plan = p; onChange = cb; selected = null; placing = null; refKey = '';
     P.setBase(plan.base);
     renderStatic(); P.scale(); map.invalidateSize();
     if (plan.view && plan.view.zoom) map.setView([plan.view.lat, plan.view.lng], plan.view.zoom, { animate: false });
@@ -327,6 +334,7 @@
   P.draw = function () {
     if (!plan) return;
     renderStatic();
+    drawRef();
     layers.clearLayers();
     plan.pos = plan.pos || {};
     if (isSafety()) drawSafety(); else drawFlood();
@@ -566,9 +574,51 @@
     map.fitBounds(L.latLngBounds(all.map(LL)), { paddingTopLeft: pad[0], paddingBottomRight: pad[1], animate: false, maxZoom: 19 });
   };
 
+  /* ---------- ข้อมูลอ้างอิง (refdata.js จากไฟล์ Google Earth ของแขวงฯ) ----------
+     plan.ref = { pts: 'none' | 'all' | 'sel', sel: [id จุดที่เลือก], lbl: แสดงชื่อจุด, routes: เส้นสายทางควบคุม, tambon: ขอบเขตตำบล, tambonLbl: ชื่อตำบล }
+     โหมด 'sel' จุดที่ยังไม่เลือกแสดงจาง (คลิกเพื่อเลือก) และไม่ติดไปในรูป/งานพิมพ์ · ขณะเลือกพิกัด (📍) แสดงทุกจุดให้คลิกใช้ */
+  const REF = window.REFDATA || { pts: [], routes: [], tambon: [] };
+  P.refPts = REF.pts.map(function (r) { return { id: r[0] + '|' + r[1], road: r[0], km: r[1], name: r[2], lat: r[3], lng: r[4] }; });
+  function drawRef() {
+    const c = plan.ref || {}, mode = c.pts || 'none', sel = c.sel || [];
+    const key = JSON.stringify(c) + (P.onPick ? '|pick' : '');
+    if (key === refKey) return;
+    refKey = key;
+    refBack.clearLayers(); refPts.clearLayers();
+    if (c.tambon) REF.tambon.forEach(function (t) {
+      L.polygon(t.r, { pane: 'refTb', color: '#ffe600', weight: 3, dashArray: '12 8', fill: false, interactive: false }).addTo(refBack);
+      if (c.tambonLbl !== false && t.c) L.marker(t.c, { pane: 'refTb', interactive: false, keyboard: false, icon: L.divIcon({ className: 'pz-reftb', iconSize: [0, 0], html: '<div>' + esc(t.n) + '</div>' }) }).addTo(refBack);
+    });
+    if (c.routes) REF.routes.forEach(function (r) {
+      L.polyline(r.p, { pane: 'refRt', color: r.col, weight: 6, opacity: .8 })
+        .bindTooltip('สายทาง ' + esc(r.c.slice(0, -4)) + ' ตอนควบคุม ' + esc(r.c.slice(-4)) + '<br>' + esc(r.n) + (r.k ? ' (กม.' + esc(r.k) + ')' : ''), { sticky: true })
+        .addTo(refBack);
+    });
+    if (mode === 'none' && !P.onPick) return;
+    P.refPts.forEach(function (p) {
+      const on = mode === 'all' || (mode === 'sel' && sel.indexOf(p.id) >= 0);
+      if (!on && mode !== 'sel' && !P.onPick) return;
+      const tip = 'ทล.' + p.road + ' กม.' + p.km + ' ' + p.name;
+      const m = L.marker([p.lat, p.lng], { keyboard: false, zIndexOffset: -800,
+        icon: L.divIcon({ className: 'pz-refpt' + (on ? '' : ' pz-refghost'), iconSize: [0, 0],
+          html: '<div title="' + esc(tip) + '"><i></i>' + (on && c.lbl !== false ? '<span>' + esc(p.name) + '<small>ทล.' + esc(p.road) + ' กม.' + esc(p.km) + '</small></span>' : '') + '</div>' }) });
+      m.on('click', function (e) {
+        L.DomEvent.stop(e);
+        const ll = L.latLng(p.lat, p.lng);
+        if (P.onPick) { const f = P.onPick; P.onPick = null; sheet.classList.remove('placing'); drawRef(); f(ll, p); return; }
+        if (placing) { placeAt(ll); return; }
+        if (mode !== 'sel') return;
+        plan.ref = Object.assign({}, c, { sel: on ? sel.filter(function (x) { return x !== p.id; }) : sel.concat([p.id]) });
+        drawRef(); changed('ref');
+      });
+      m.addTo(refPts);
+    });
+  }
+  P.drawRef = function () { if (plan) drawRef(); };
+
   /* ---------- วางอุปกรณ์เพิ่มเอง ---------- */
   P.startPlacing = function (t) { placing = t; sheet.classList.toggle('placing', !!t); };
-  P.pick = function (cb) { P.onPick = cb; placing = null; sheet.classList.add('placing'); };
+  P.pick = function (cb) { P.onPick = cb; placing = null; sheet.classList.add('placing'); drawRef(); };
   function placeAt(ll) {
     const t = placing;
     const d = { t: t, lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) };
@@ -659,7 +709,7 @@
 
   /* ---------- ส่งออก ---------- */
   function filter(n) {
-    return !(n.classList && (n.classList.contains('leaflet-control-zoom') || n.classList.contains('pz-rot') || n.classList.contains('pz-h')));
+    return !(n.classList && (n.classList.contains('leaflet-control-zoom') || n.classList.contains('pz-rot') || n.classList.contains('pz-h') || n.classList.contains('pz-refghost')));
   }
   P.exportPng = async function (name) {
     select(null);

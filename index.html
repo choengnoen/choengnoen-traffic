@@ -215,6 +215,20 @@ body.printing-poster .pz-movable{outline:none!important}
 .pz-chev svg{width:24px;height:24px;display:block}
 .pz-h div{width:26px;height:26px;border-radius:50%;background:#fff;border:5px solid var(--c);box-shadow:0 1px 4px rgba(0,0,0,.6);cursor:grab;margin:2px}
 .pz-h.end div{background:var(--c);border-color:#fff}
+/* ข้อมูลอ้างอิง: จุดแยก/U-Turn · ชื่อตำบล */
+.pz-refpt,.pz-reftb{background:none;border:none}
+.pz-refpt>div{position:absolute;left:0;top:0;transform:translate(-12px,-12px);display:flex;align-items:center;gap:8px;white-space:nowrap;cursor:pointer}
+.pz-refpt i{width:24px;height:24px;border-radius:50%;background:#aaff00;border:4px solid #1b5e20;box-shadow:0 0 0 3px #fff,0 2px 5px rgba(0,0,0,.6);flex:none;box-sizing:border-box}
+.pz-refpt span{font:600 22px 'Kanit',sans-serif;color:#111;background:rgba(255,255,255,.93);border-radius:8px;padding:2px 12px;box-shadow:0 1px 5px rgba(0,0,0,.45);line-height:1.2}
+.pz-refpt small{display:block;font-size:17px;color:#b71c1c}
+.pz-refghost{opacity:.5}
+.pz-refghost i{background:#e0e0e0;border-color:#555}
+.pz-reftb div{position:absolute;left:0;top:0;transform:translate(-50%,-50%);font:600 24px 'Kanit',sans-serif;color:#ffe600;white-space:nowrap;
+  text-shadow:2px 0 0 #000,-2px 0 0 #000,0 2px 0 #000,0 -2px 0 #000,1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000}
+.ref-list{max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:#fbfcfd;margin-top:8px}
+.ref-list h5{margin:6px 0 2px;font:600 13px 'Kanit',sans-serif;color:var(--brand-800)}
+.ref-list label{display:flex;gap:6px;align-items:flex-start;font-size:13px;padding:2px 0;cursor:pointer}
+.ref-list label b{font-weight:600;color:var(--bad);min-width:62px}
 /* สไตล์: เตือนภัย แนวตั้ง */
 .st-alert .pz-head,.st-alert .pz-br{display:none}
 .st-alert .pz-abanner{display:flex;position:absolute;left:24px;right:24px;top:22px;z-index:600;background:#d61a1a;border:6px solid #fff;border-radius:28px;box-shadow:0 6px 18px rgba(0,0,0,.5);align-items:center;gap:22px;padding:18px 26px;pointer-events:none}
@@ -272,7 +286,7 @@ body.printing-poster .pz-movable{outline:none!important}
   body.printing-poster .view{padding:0}
   body.printing-poster .editor{display:block}
   body.printing-poster .pz-stage{overflow:visible;background:none;border-radius:0}
-  body.printing-poster .pz-rot,body.printing-poster .leaflet-control-zoom{display:none!important}
+  body.printing-poster .pz-rot,body.printing-poster .leaflet-control-zoom,body.printing-poster .pz-refghost{display:none!important}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 
@@ -335,6 +349,7 @@ body.printing-poster .pz-movable{outline:none!important}
 
 <script src="firebase-layer.js"></script>
 <script src="route.js"></script>
+<script src="refdata.js"></script>
 <script src="poster.js"></script>
 <script src="ai.js"></script>
 <script src="logo-data.js"></script>
