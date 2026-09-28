@@ -212,7 +212,7 @@
     $('demoBadge').style.display = FBL.mode === 'demo' ? '' : 'none';
     $('whoDisplay').textContent = 'ผู้ใช้งาน: ' + FBL.user.name + (FBL.user.isOwner ? ' 👑' : FBL.user.isAdmin ? ' 🛡️' : '');
     $('btnLogout').onclick = async function () {
-      if (S.dirty && !confirm('ผังที่แก้ไขยังไม่ได้บันทึก ออกจากระบบเลยหรือไม่?')) return;
+      if (S.dirty && !await UI.confirm('ออกจากระบบ ?', { msg: 'ผังที่แก้ไขยังไม่ได้บันทึก ออกจากระบบเลยหรือไม่', ok: 'ออกจากระบบ', danger: true })) return;
       await FBL.logout(); location.reload();
     };
     $('tabs').querySelectorAll('.tab-btn').forEach(function (b) { b.onclick = function () { go(b.dataset.view); }; });
@@ -247,7 +247,9 @@
       }).join('') + '</div>') +
       '<div class="card"><div class="section-title">' + (S.trash ? '🗑 ถังขยะ' : 'ผังที่บันทึกไว้') + ' <span class="sub">' + rows.length + ' ผัง</span>' +
       '<span style="margin-left:auto" class="flex">' +
-      ['all', 'flood', 'safety', 'drain'].map(function (k) { return '<span class="chip' + (S.filter === k ? ' active' : '') + '" data-f="' + k + '">' + (k === 'all' ? 'ทั้งหมด' : KIND[k].ic + ' ' + KIND[k].short) + '</span>'; }).join('') +
+      '<select class="inp" id="lsF" title="กรองตามชนิดผัง" style="width:auto">' +
+      ['all', 'flood', 'safety', 'drain'].map(function (k) { return '<option value="' + k + '"' + (S.filter === k ? ' selected' : '') + '>' + (k === 'all' ? 'ทั้งหมด' : KIND[k].ic + ' ' + KIND[k].short) + '</option>'; }).join('') +
+      '</select>' +
       '<input class="inp" id="lsQ" placeholder="ค้นหา..." style="width:180px" value="' + esc(S.q) + '">' +
       '<button class="btn btn-sm btn-outline" id="lsTrash">' + (S.trash ? '← กลับรายการผัง' : '🗑 ถังขยะ (' + trashN + ')') + '</button></span></div>' +
       (S.trash && canAdmin() && rows.length ? '<div class="alert warn">ผังในถังขยะยังกินพื้นที่ฐานข้อมูล กด "ลบถาวร" หรือ "ล้างถังขยะ" เมื่อไม่ใช้แล้ว (ลบถาวรแล้วกู้คืนไม่ได้) <button class="btn btn-sm btn-danger" id="lsEmpty" style="margin-left:auto">ล้างถังขยะทั้งหมด</button></div>' : '') +
@@ -265,26 +267,26 @@
       }).join('') : '<tr><td colspan="7" class="empty">' + (S.trash ? 'ถังขยะว่าง' : 'ยังไม่มีผัง — เลือกชนิดผังด้านบนเพื่อเริ่มสร้าง') + '</td></tr>') +
       '</tbody></table></div></div>';
     el.querySelectorAll('[data-new]').forEach(function (b) { b.onclick = function () { openPlan(newPlan(b.dataset.new)); }; });
-    el.querySelectorAll('[data-f]').forEach(function (c) { c.onclick = function () { S.filter = c.dataset.f; renderList(); }; });
+    $('lsF').onchange = function () { S.filter = this.value; renderList(); };
     $('lsQ').oninput = function () { S.q = this.value; const pos = this.selectionStart; renderList(); const i = $('lsQ'); i.focus(); i.setSelectionRange(pos, pos); };
     $('lsTrash').onclick = function () { S.trash = !S.trash; renderList(); };
     if ($('lsEmpty')) $('lsEmpty').onclick = async function () {
       const list = S.plans.filter(function (p) { return p.deletedAt; });
-      if (!confirm('ลบถาวรผังในถังขยะทั้งหมด ' + list.length + ' ผัง?\nกู้คืนไม่ได้')) return;
+      if (!await UI.confirm('ล้างถังขยะทั้งหมด ?', { msg: 'ลบถาวรผังในถังขยะทั้งหมด ' + list.length + ' ผัง — กู้คืนไม่ได้', ok: 'ลบถาวร', danger: true })) return;
       const done = busy(this, 'กำลังลบ...');
       try { for (const p of list) await FBL.hardDeletePlan(p); toast('ล้างถังขยะแล้ว'); } catch (e) { toast(e.message, true); }
       done();
     };
     el.querySelectorAll('tr[data-id]').forEach(function (tr) {
       const p = S.plans.find(function (x) { return x.id === tr.dataset.id; });
-      tr.onclick = function (e) {
+      tr.onclick = async function (e) {
         const act = e.target.dataset && e.target.dataset.act;
         if (!act) { if (!S.trash) openPlan(JSON.parse(JSON.stringify(p))); return; }
         e.stopPropagation();
         if (act === 'dup') { const c = JSON.parse(JSON.stringify(p)); ['id', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'].forEach(function (k) { delete c[k]; }); c.title = titleOf(p) + ' (สำเนา)'; c.date = today(); openPlan(c); }
-        if (act === 'del' && confirm('ย้าย "' + titleOf(p) + '" ไปถังขยะ?')) FBL.softDeletePlan(p).then(function () { toast('ย้ายไปถังขยะแล้ว'); }, function (er) { toast(er.message, true); });
+        if (act === 'del' && await UI.confirm('ลบผัง ?', { msg: 'ย้าย "' + titleOf(p) + '" ไปที่ "ถังขยะ" (กู้คืนได้)', danger: true })) FBL.softDeletePlan(p).then(function () { toast('ย้ายไปถังขยะแล้ว'); }, function (er) { toast(er.message, true); });
         if (act === 'restore') FBL.softDeletePlan(p, true).then(function () { toast('กู้คืนแล้ว'); }, function (er) { toast(er.message, true); });
-        if (act === 'hard' && confirm('ลบ "' + titleOf(p) + '" ถาวร?\nกู้คืนไม่ได้')) FBL.hardDeletePlan(p).then(function () { toast('ลบถาวรแล้ว'); }, function (er) { toast(er.message, true); });
+        if (act === 'hard' && await UI.confirm('ลบถาวร ?', { msg: 'ลบ "' + titleOf(p) + '" ถาวร — กู้คืนไม่ได้', ok: 'ลบถาวร', danger: true })) FBL.hardDeletePlan(p).then(function () { toast('ลบถาวรแล้ว'); }, function (er) { toast(er.message, true); });
       };
     });
   }
@@ -318,7 +320,7 @@
     $('edText').onclick = function () {
       if (!S.cur) return;
       const t = announce(S.cur);
-      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('คัดลอกข้อความประกาศแล้ว วางใน LINE/Facebook ได้เลย'); }, function () { prompt('คัดลอกข้อความนี้', t); });
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('คัดลอกข้อความประกาศแล้ว วางใน LINE/Facebook ได้เลย'); }, function () { UI.prompt('คัดลอกข้อความประกาศ', t, { msg: 'คัดลอกอัตโนมัติไม่ได้ — กด Ctrl+C เพื่อคัดลอกข้อความนี้', multiline: true, readonly: true }); });
     };
     $('edFit').onclick = function () { if (S.cur) P.fit(); };
     $('edLabels').onclick = function () { if (S.cur) P.autoLabels(); };
@@ -332,8 +334,8 @@
     if (what === 'devices' || what === 'route') refreshLens();
     if (what === 'ref') renderRefList();
   }
-  function openPlan(p) {
-    if (S.dirty && !confirm('ผังเดิมยังไม่ได้บันทึก เปิดผังอื่นเลยหรือไม่?')) return;
+  async function openPlan(p) {
+    if (S.dirty && !await UI.confirm('ผังเดิมยังไม่ได้บันทึก', { msg: 'เปิดผังอื่นเลยหรือไม่ (การแก้ไขที่ยังไม่บันทึกจะหายไป)', ok: 'เปิดผังอื่น' })) return;
     S.cur = p; S.dirty = !p.id; S.files = [];
     go('edit');
     P.setPlan(S.cur, onPoster);
@@ -357,6 +359,10 @@
     else if (opt.type === 'checkbox') return '<div class="field ' + (opt.cls || '') + '"><label><input type="checkbox" data-k="' + path + '"' + (v ? ' checked' : '') + '> ' + esc(label) + '</label></div>';
     else input = '<input type="' + (opt.type || 'text') + '" data-k="' + path + '" value="' + esc(v == null ? '' : v) + '" placeholder="' + esc(opt.ph || '') + '">';
     return '<div class="field ' + (opt.cls || '') + '"><label>' + esc(label) + '</label>' + input + (opt.hint ? '<span class="hint">' + opt.hint + '</span>' : '') + '</div>';
+  }
+  // เลือกสีเส้นทางบนผัง (ว่าง = สีเดิมของสไตล์)
+  function lineColFld(label, path, defName) {
+    return fld(label, path, { type: 'select', options: [{ k: '', n: 'ค่าเดิม (' + defName + ')' }].concat(Object.keys(P.LINE_COLORS).map(function (x) { return { k: x, n: P.LINE_COLORS[x] }; })) });
   }
   function ptRow(path, label, phName) {
     const p = getP(S.cur, path) || pt();
@@ -461,21 +467,15 @@
       return '<details class="more ' + (cls || 'wide') + '" data-sec="' + id + '"' + (S.open[id] ? ' open' : '') + '><summary>' + title + '</summary><div class="in">' + body + '</div></details>';
     };
     let h = '<div class="card wide"><div class="section-title">' + KIND[k].ic + ' ' + KIND[k].name + (p.id ? '' : ' <span class="badge b-warn">ผังใหม่ ยังไม่บันทึก</span>') +
-      '<span class="flex" style="margin-left:auto;font-family:Sarabun,sans-serif;font-weight:400">' + fld('วันที่', 'date', { type: 'date' }) + fld('สถานะ', 'status', { type: 'select', options: [{ k: 'active', n: 'ใช้งานอยู่' }, { k: 'ended', n: 'สิ้นสุดแล้ว' }] }) + '</span></div>' +
-      (k === 'flood' ? '<p class="hint" style="margin:0">ขั้นตอน: ① ใส่สายทางและจุดน้ำท่วม (วางข้อความทีเดียวหลายจุดได้) → ② ใส่ทางเบี่ยง → ③ กด ⚡ สร้างผัง · ผังตัวอย่างอยู่ด้านล่าง</p>' : '') + '</div>';
+      '<span class="flex" style="margin-left:auto;font-family:Sarabun,sans-serif;font-weight:400">' + fld('วันที่', 'date', { type: 'date' }) + fld('สถานะ', 'status', { type: 'select', options: [{ k: 'active', n: 'ใช้งานอยู่' }, { k: 'ended', n: 'สิ้นสุดแล้ว' }] }) + '</span></div></div>';
 
     // ข้อมูลหลัก + ปุ่มสร้างผัง
     const buildRow = '<div class="card wide"><div class="build-row"><button class="btn btn-primary btn-lg" id="edBuild">⚡ ' + (k === 'flood' ? '③ ' : '') + 'สร้างผังอัตโนมัติ</button><div id="edLens" class="hint"></div></div></div>';
     if (k === 'flood') {
-      const n = 1 + (p.floods2 || []).length;
-      const nr = P.roads(p).length;
-      h += '<div class="card"><div class="section-title"><span class="step-no">1</span> จุดน้ำท่วม <span class="sub">' + n + ' จุด' + (nr > 1 ? ' · ' + nr + ' สายทาง' : '') + ' — แต่ละจุดอยู่คนละสายทางได้</span></div>' +
-        '<div class="field paste-box" style="margin:0 0 10px"><label>📥 วางข้อมูลจุดน้ำท่วม (ใส่ได้หลายจุดพร้อมกัน ระบบแยกให้เอง)</label><textarea id="fxPaste" placeholder="' + esc(
-          'หมายเลขทางหลวง: 3574 ตอนควบคุม บ้านค่าย - ระยอง ช่วง กม.: 44+000 ถึง กม.: 46+000 ระดับน้ำ: 30 เซ็นติเมตร\nเริ่ม 12.8123, 101.2345  สิ้นสุด 12.8012, 101.2456\nหมายเลขทางหลวง: 3574 ตอนควบคุม บ้านค่าย - ระยอง ช่วง กม.: 48+500 ถึง กม.: 49+200 ระดับน้ำ: 20 เซ็นติเมตร\nเริ่ม ...  สิ้นสุด ...\nหมายเลขทางหลวง: 3 ตอนควบคุม ... (คนละสายทางในผังเดียวกันได้)\nทางเบี่ยง เริ่ม 12.83, 101.22 ถึง 12.79, 101.27') + '"></textarea>' +
-        '<div class="flex" style="margin-top:6px"><button type="button" class="btn btn-sm btn-primary" id="fxRead">อ่านข้อมูลใส่ให้</button><span class="hint">พิกัดคู่แรกของแต่ละจุด = จุดเริ่ม คู่ที่สอง = จุดสิ้นสุด</span></div></div>' +
+      h += '<div class="card"><div class="section-title"><span class="step-no">1</span> จุดน้ำท่วม</div>' +
         segCard(0) + (p.floods2 || []).map(function (s, i) { return segCard(i + 1); }).join('') +
         '<button type="button" class="btn btn-sm btn-outline" id="fxAdd">+ เพิ่มจุดน้ำท่วม</button></div>';
-      h += '<div class="card"><div class="section-title"><span class="step-no">2</span> ทางเบี่ยง <span class="sub">ระบบหาเส้นทางที่ไม่ผ่านจุดน้ำท่วมทุกจุดให้เอง</span></div>' +
+      h += '<div class="card"><div class="section-title"><span class="step-no">2</span> ทางเบี่ยง</div>' +
         '<div class="seg det"><div class="seg-h">🔵 ทางเบี่ยงที่ 1</div>' + gmapRow('detour') + ptRow('detour.a', 'จุดแยกออก (เข้าทางเบี่ยง)') + ptRow('detour.b', 'จุดกลับเข้าทางหลัก') + '</div>' +
         (p.detour2
           ? '<div class="seg det2"><div class="seg-h">🟣 ทางเบี่ยงที่ 2 <button type="button" class="btn btn-sm btn-danger" id="det2Del">ลบทางเบี่ยงที่ 2</button></div>' + gmapRow('detour2') + ptRow('detour2.a', 'จุดแยกออก (เข้าทางเบี่ยงที่ 2)') + ptRow('detour2.b', 'จุดกลับเข้าทางหลัก') + '</div>'
@@ -510,7 +510,10 @@
       fld('ตรากรมทางหลวง', 'logo', { type: 'select', options: [{ k: '', n: 'ตามค่าตั้งของเว็บ (' + (P.logoDefault === 'new' ? 'แบบใหม่' : 'แบบเดิม') + ')' }, { k: 'new', n: 'ตราแบบใหม่' + (P.logos.new ? '' : ' (ยังไม่มีไฟล์)') }, { k: 'old', n: 'ตราแบบเดิม' }] }) +
       (k === 'flood' ? fld('รูปแบบลูกศรบอกทิศ', 'arrow', { type: 'select', options: Object.keys(P.ARROWS).map(function (x) { return { k: x, n: P.ARROWS[x].name }; }) }) +
         fld('สีลูกศร', 'arrowColor', { type: 'select', options: Object.keys(P.ARROW_COLORS).map(function (x) { return { k: x, n: P.ARROW_COLORS[x] }; }) }) +
-        '<div class="span-all arrow-prev" id="arrPrev"></div>' : '') + '</div>' +
+        '<div class="span-all arrow-prev" id="arrPrev"></div>' +
+        lineColFld('สีเส้นน้ำท่วม (เส้นหลัก)', 'colFlood', 'แดง') +
+        lineColFld('สีเส้นทางเบี่ยง / เส้นทางแนะนำ', 'colDetour', p.style === 'alert' ? 'เขียว' : 'น้ำเงิน') +
+        (p.detour2 ? lineColFld('สีเส้นทางเบี่ยงที่ 2', 'colDetour2', 'ม่วง') : '') : '') + '</div>' +
       '<p class="hint">กล่อง "ขออภัยในความไม่สะดวก" และ "คำอธิบายสัญลักษณ์" ลากย้ายบนผังได้ · ดับเบิลคลิกที่กล่องเพื่อคืนตำแหน่งเดิม</p>';
     h += sec('look', '🎨 รูปแบบผัง / พื้นหลังแผนที่ / ลูกศร', look);
 
@@ -655,23 +658,22 @@
       markDirty(); renderForm();
       status('ใส่ กม. ระดับน้ำ และพิกัดเริ่ม-สิ้นสุด ของจุดน้ำท่วมที่ ' + (S.cur.floods2.length + 1) + ' แล้วกด ⚡ สร้างผังอัตโนมัติ');
     };
-    if ($('fxRead')) $('fxRead').onclick = applyFloodPaste;
     if ($('det2Add')) $('det2Add').onclick = function () {
       S.cur.detour2 = { a: pt(), b: pt(), via: [] };
       markDirty(); renderForm();
       status('ใส่จุดแยกออก และจุดกลับเข้า ของทางเบี่ยงที่ 2 แล้วกด ⚡ สร้างผังอัตโนมัติ');
     };
-    if ($('det2Del')) $('det2Del').onclick = function () {
-      if (!confirm('ลบทางเบี่ยงที่ 2?')) return;
+    if ($('det2Del')) $('det2Del').onclick = async function () {
+      if (!await UI.confirm('ลบทางเบี่ยงที่ 2 ?', { msg: 'ลบเส้นทางและจุดของทางเบี่ยงที่ 2 ออกจากผังนี้', danger: true })) return;
       P.select(null);
       S.cur.detour2 = null; delete S.cur.detour2Line; delete S.cur.detour2Len;
       if (S.cur.pos) { delete S.cur.pos.det2A; delete S.cur.pos.det2B; }
       markDirty(); renderForm(); P.draw(); refreshLens();
     };
     el.querySelectorAll('[data-fxdel]').forEach(function (b) {
-      b.onclick = function () {
+      b.onclick = async function () {
         const n = +b.dataset.fxdel, i = n - 1, list = S.cur.floods2;
-        if (!confirm('ลบจุดน้ำท่วมที่ ' + (n + 1) + '?')) return;
+        if (!await UI.confirm('ลบจุดน้ำท่วมที่ ' + (n + 1) + ' ?', { msg: 'ลบจุดน้ำท่วมนี้ออกจากผัง', danger: true })) return;
         P.select(null);
         if (n === 0) {   // ลบจุดที่ 1 → เลื่อนจุดที่ 2 ขึ้นมาแทน แล้วจัดป้ายใหม่
           const s = list.shift(), oldRoad = S.cur.road, oldSec = S.cur.section;
@@ -760,46 +762,6 @@
     if (p.kind === 'drain' && p.drainLine) out.push('แนวระบายน้ำ ' + fmtKm(p.drainLen || 0), 'ระบายลง: ' + (p.drain.b.name || '-'), p.drop != null ? 'ต่างระดับ ~' + (+p.drop).toFixed(1) + ' ม.' : '');
     el.textContent = out.filter(Boolean).join(' · ');
   }
-  // วางข้อความรายการจุดน้ำท่วม (หลายจุด) → แทนที่จุดน้ำท่วมทั้งหมด · ทางเบี่ยงที่อ่านได้ใส่ทางเบี่ยงที่ 1 และ 2
-  function applyFloodPaste() {
-    const text = ($('fxPaste').value || '').trim(), p = S.cur;
-    if (!text) { toast('วางข้อความรายการจุดน้ำท่วมก่อน', true); return; }
-    const r = AI.parseFloods(text);
-    if (!r.floods.length && !r.detours.length) { toast('ไม่พบ กม. / ระดับน้ำ / พิกัด ในข้อความ — ดูตัวอย่างในช่อง', true); return; }
-    if (r.floods.length) {
-      const old = P.floodList(p).filter(function (f) { return f.r.a.km || P.has(f.r.a); }).length;
-      if (old && !confirm('แทนที่จุดน้ำท่วมเดิม ' + old + ' จุด ด้วยข้อมูลใหม่ ' + r.floods.length + ' จุด?')) return;
-      const r0 = r.floods[0].road || r.road || p.road, s0 = r.floods[0].section || (r0 === p.road ? p.section : '') || r.section;
-      p.road = r0 || ''; p.section = s0 || '';
-      const segs = r.floods.map(function (f) {
-        // จุดที่อยู่สายทางเดียวกับจุดที่ 1 ไม่ต้องเก็บซ้ำ (เว้นว่าง = ตามจุดที่ 1)
-        const rd = f.road && f.road !== r0 ? f.road : '', sc = f.section && f.section !== s0 ? f.section : '';
-        return { road: rd, section: sc, place: f.place || '', depth: f.depth || '', via: [],
-          a: Object.assign(pt(), f.a || {}, { km: (f.a && f.a.km) || f.kmA || '' }),
-          b: Object.assign(pt(), f.b || {}, { km: (f.b && f.b.km) || f.kmB || '' }) };
-      });
-      const first = segs.shift();
-      p.flood = { a: first.a, b: first.b, via: [], depth: first.depth };
-      if (first.place) p.place = first.place;
-      p.floods2 = segs;
-      p.floodLine = ''; p.floodLen = 0; p.pos = {};
-    }
-    if (!r.floods.length) { if (r.road) p.road = r.road; if (r.section) p.section = r.section; }
-    r.detours.slice(0, 2).forEach(function (d, i) {
-      const key = i ? 'detour2' : 'detour';
-      if (!p[key]) p[key] = { a: pt(), b: pt(), via: [] };
-      if (d.a) Object.assign(p[key].a, d.a);
-      if (d.b) Object.assign(p[key].b, d.b);
-      p[key].via = []; p[key + 'Line'] = '';
-    });
-    const known = fillKnown(p);
-    remember(p); markDirty(); renderForm(); P.draw();
-    if (firstCoord()) P.fit();
-    const miss = missingCoords();
-    status('อ่านได้ ' + r.floods.length + ' จุดน้ำท่วม' + (r.detours.length ? ' · ทางเบี่ยง ' + Math.min(2, r.detours.length) + ' เส้น' : '') +
-      (known.length ? ' · ใช้พิกัดที่เคยลงไว้: ' + known.join(', ') : '') +
-      (miss.length ? ' — ยังขาดพิกัด: ' + miss.join(', ') + ' (ใส่เองหรือกด 📍)' : ' — ตรวจสอบแล้วกด ⚡ สร้างผังอัตโนมัติ'), !!miss.length);
-  }
   function missingCoords() {
     const p = S.cur;
     let need = p.kind === 'safety' ? [['zone.a', 'ต้นเขตงาน'], ['zone.b', 'ปลายเขตงาน']] : [['drain.a', 'จุดน้ำท่วมขัง']];
@@ -829,12 +791,12 @@
     });
     if ($('devRe')) $('devRe').onclick = async function () {
       if (!S.cur.zoneLine) { toast('สร้างผังอัตโนมัติก่อน', true); return; }
-      if ((S.cur.devices || []).length && !confirm('จัดวางใหม่จะแทนที่อุปกรณ์เดิมทั้งหมด ทำต่อหรือไม่?')) return;
+      if ((S.cur.devices || []).length && !await UI.confirm('จัดวางอุปกรณ์ใหม่ ?', { msg: 'จัดวางใหม่จะแทนที่อุปกรณ์เดิมทั้งหมด ทำต่อหรือไม่', ok: 'จัดวางใหม่' })) return;
       const done = busy(this, 'กำลังจัดวาง...');
       try { await layoutDevices(); P.draw(); refreshLens(); markDirty(); } catch (e) { toast(e.message, true); }
       done();
     };
-    if ($('devClr')) $('devClr').onclick = function () { if (confirm('ล้างอุปกรณ์ทั้งหมดในผัง?')) { S.cur.devices = []; P.draw(); refreshLens(); markDirty(); } };
+    if ($('devClr')) $('devClr').onclick = async function () { if (await UI.confirm('ล้างอุปกรณ์ทั้งหมด ?', { msg: 'ลบอุปกรณ์ทุกชิ้นที่วางไว้ในผังนี้', ok: 'ล้างทั้งหมด', danger: true })) { S.cur.devices = []; P.draw(); refreshLens(); markDirty(); } };
   }
 
   /* ---------- สร้างผังอัตโนมัติ ---------- */
@@ -1013,7 +975,7 @@
       try { await FBL.changeMyPassword(a); toast('เปลี่ยนรหัสผ่านแล้ว'); $('pw1').value = $('pw2').value = ''; } catch (e) { toast(e.message, true); }
       done();
     };
-    if ($('demoReset')) $('demoReset').onclick = function () { if (confirm('ล้างข้อมูลทดลองทั้งหมดในเครื่องนี้?')) { FBL.resetDemo(); location.reload(); } };
+    if ($('demoReset')) $('demoReset').onclick = async function () { if (await UI.confirm('ล้างข้อมูลทดลอง ?', { msg: 'ล้างข้อมูลทดลองทั้งหมดในเครื่องนี้', ok: 'ล้างข้อมูล', danger: true })) { FBL.resetDemo(); location.reload(); } };
   }
 
   // ตราแบบใหม่: ไฟล์กลางจากฐานข้อมูลกลาง (CNMaster.EMBLEM_URL) · โหลดไม่ได้ (ออฟไลน์/ฮับล่ม) = มีแต่ตราแบบเดิม
