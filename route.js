@@ -70,14 +70,15 @@
 
   /* ---------- OSRM ---------- */
   let last = 0;
-  async function osrm(pts, alternatives) {
+  async function osrm(pts, alternatives, bearings) {
     const wait = 350 - (Date.now() - last);   // ถนอมเซิร์ฟเวอร์สาธารณะ
     if (wait > 0) await sleep(wait);
     last = Date.now();
     const coords = pts.map(function (p) { return (+p.lng).toFixed(6) + ',' + (+p.lat).toFixed(6); }).join(';');
     let res;
     try {
-      res = await fetch(OSRM + coords + '?overview=full&geometries=geojson' + (alternatives ? '&alternatives=' + alternatives : ''));
+      res = await fetch(OSRM + coords + '?overview=full&geometries=geojson' + (alternatives ? '&alternatives=' + alternatives : '') +
+        (bearings ? '&bearings=' + bearings.map(function (b) { return Math.round(b) + ',50'; }).join(';') : ''));
     } catch (e) { throw new Error('เชื่อมต่อบริการคำนวณเส้นทางไม่ได้ (ตรวจสอบอินเทอร์เน็ต)'); }
     const data = await res.json();
     if (data.code !== 'Ok' || !data.routes || !data.routes.length) throw new Error(data.message || 'หาเส้นทางตามถนนไม่พบ');
@@ -87,15 +88,35 @@
     });
   }
 
-  // เส้นทางผ่านทุกจุดตามลำดับ · 2 จุดลองทั้งสองทิศ เลือกเส้นที่สั้นกว่า
-  async function route(pts) {
-    const a = (await osrm(pts))[0];
-    if (pts.length === 2) {
+  // ทิศของเส้นที่แต่ละจุด (องศาจากทิศเหนือ ตามเข็มนาฬิกา)
+  function bearingsOf(pts) {
+    return pts.map(function (p, i) {
+      const a = pts[Math.max(0, i === pts.length - 1 ? i - 1 : i)], b = pts[i === pts.length - 1 ? i : i + 1];
+      const m = metric(a.lat), p0 = m.xy(a), p1 = m.xy(b);
+      return (Math.atan2(p1[0] - p0[0], p1[1] - p0[1]) * 180 / Math.PI + 360) % 360;
+    });
+  }
+  function flip(r) { return { pts: r.pts.slice().reverse(), distance: r.distance, waypoints: r.waypoints.slice().reverse() }; }
+
+  /* เส้นทางผ่านทุกจุดตามลำดับ
+     side = ''   อัตโนมัติ: ลองทั้งสองทิศ เลือกเส้นที่สั้นกว่า (กันเส้นวิ่งเลยไปกลับรถแล้วย้อนมา)
+            'L'  ฝั่งซ้ายของทิศ ต้น→ปลาย = ช่องทางที่รถวิ่งจากต้นไปปลาย (ไทยขับชิดซ้าย)
+            'R'  ฝั่งขวา = ช่องทางที่รถวิ่งสวนกลับ
+            'line' เส้นตรงผ่านจุดที่ลาก ไม่วิ่งตามถนน */
+  async function route(pts, side) {
+    if (side === 'line') { const p = pts.map(function (q) { return { lat: q.lat, lng: q.lng }; }); return { pts: p, distance: length(p), waypoints: p }; }
+    if (side === 'L' || side === 'R') {
+      const q = side === 'L' ? pts : pts.slice().reverse();
       try {
-        const b = (await osrm([pts[1], pts[0]]))[0];
-        if (b.distance < a.distance * 0.8) return { pts: b.pts.slice().reverse(), distance: b.distance, waypoints: a.waypoints };
-      } catch (e) { /* ใช้ทิศแรก */ }
+        const r = (await osrm(q, 0, bearingsOf(q)))[0];
+        return side === 'L' ? r : flip(r);
+      } catch (e) { /* ไม่พบช่องทางตามทิศ → ใช้แบบอัตโนมัติ */ }
     }
+    const a = (await osrm(pts))[0];
+    try {
+      const b = (await osrm(pts.slice().reverse()))[0];
+      if (b.distance < a.distance * 0.8) return flip(b);
+    } catch (e) { /* ใช้ทิศแรก */ }
     return a;
   }
 
