@@ -212,8 +212,6 @@
     $('tabs').querySelectorAll('.tab-btn').forEach(function (b) { b.onclick = function () { go(b.dataset.view); }; });
     window.addEventListener('beforeunload', function (e) { if (S.dirty) { e.preventDefault(); e.returnValue = ''; } });
     S.plans = await FBL.watchPlans(function (docs) { S.plans = docs; if (S.view === 'list') renderList(); });
-    // ยังไม่ได้วางกฎ traffic_settings ก็ข้ามไป (ใช้ตราแบบเดิม/ไฟล์ logo-new.png ตามเดิม)
-    FBL.loadLogo().then(function (d) { if (d) setLogoDb(d); }, function () { /* ข้าม */ });
     hideLoading();
     buildEditor();
     go('list');
@@ -812,7 +810,7 @@
   }
 
   /* ======================= ตั้งค่า ======================= */
-  // ตราที่ใช้บนผัง (ค่าเริ่มต้นของเว็บ): เก็บในเบราว์เซอร์ · มีตราแบบใหม่ (อัปโหลดหรือไฟล์) แล้วค่อยเลือกแบบใหม่ได้
+  // ตราที่ใช้บนผัง (ค่าเริ่มต้นของเว็บ): เก็บในเบราว์เซอร์ · โหลดตราแบบใหม่จากฐานข้อมูลกลางได้แล้วค่อยเลือกแบบใหม่ได้
   function logoPref() {
     let v = null;
     try { v = localStorage.getItem('fdp_logo'); } catch (e) { /* ข้าม */ }
@@ -828,13 +826,9 @@
     el.innerHTML =
       '<div class="card" style="max-width:820px"><div class="section-title">🏛️ ตรากรมทางหลวงบนผัง <span class="sub">ค่าเริ่มต้นของทุกผัง · ผังแต่ละแผ่นเลือกเปลี่ยนเองได้ในหน้าแก้ไขผัง</span></div>' +
       '<div class="logo-opts">' + logoOpt('new', window.LOGO_NEW_DATA, 'ตราแบบใหม่') + logoOpt('old', window.LOGO_DATA || 'logo.png', 'ตราแบบเดิม') + '</div>' +
-      (canAdmin()
-        ? '<div class="flex" style="margin-top:12px"><input type="file" id="logoFile" accept="image/png,image/webp,image/jpeg,image/svg+xml" style="display:none">' +
-          '<button class="btn btn-outline" id="logoUp">📤 ' + (logoDb ? 'เปลี่ยนรูปตราแบบใหม่' : 'อัปโหลดตราแบบใหม่') + '</button>' +
-          (logoDb ? '<button class="btn btn-ghost" id="logoDel">ลบตราที่อัปโหลด</button>' : '') + '</div>' +
-          '<p class="hint">' + (logoDb ? 'อัปโหลดโดย ' + esc(logoDb.updatedBy || '-') + ' เมื่อ ' + esc(thDate(logoDb.updatedAt, true)) + ' · ' : '') +
-          'ใช้รูป PNG พื้นหลังโปร่งใสจะสวยที่สุด ระบบย่อขนาดให้เอง · ทุกคนในทีมเห็นตราเดียวกันทันที</p>'
-        : (window.LOGO_NEW_DATA ? '' : '<p class="hint">ยังไม่มีตราแบบใหม่ — ให้เจ้าของระบบหรือผู้ดูแลระบบอัปโหลดที่หน้านี้</p>')) + '</div>' +
+      '<p class="hint">' + (window.LOGO_NEW_DATA
+        ? 'ตราแบบใหม่ใช้ไฟล์กลางจากฐานข้อมูลกลาง (CN-Hub) — ทุกระบบใช้ตราเดียวกัน'
+        : 'ยังเชื่อมต่อฐานข้อมูลกลางไม่ได้ — ใช้ตราแบบเดิมไปก่อน') + '</p></div>' +
       '<div class="card" style="max-width:820px"><div class="section-title">🤖 AI ผู้ช่วยกรอกข้อมูล (Claude) <span class="sub">เก็บเฉพาะในเบราว์เซอร์เครื่องนี้ ไม่บันทึกลงฐานข้อมูล</span></div>' +
       '<div class="alert warn">เมื่อกด "ให้ AI อ่าน" ข้อความและรูปที่แนบจะถูกส่งไปประมวลผลที่ Anthropic (ผู้ให้บริการ Claude) — ห้ามแนบเอกสารชั้นความลับหรือข้อมูลส่วนบุคคลอ่อนไหว และ AI อาจผิดพลาดได้ ต้องตรวจทุกครั้ง</div>' +
       '<div class="grid grid-2"><div class="field"><label>Anthropic API key</label>' + pwField('aiKey', 'off') + '<span class="hint">สร้างที่ console.anthropic.com (จ่ายตามการใช้งาน) · ไม่ใส่ก็ใช้ระบบได้ครบ ยกเว้นปุ่ม 🤖</span></div>' +
@@ -857,29 +851,6 @@
         toast('ตั้งค่าตราแล้ว — ผังที่เลือก "ตามค่าตั้งของเว็บ" จะใช้ตรานี้');
       };
     });
-    if ($('logoUp')) {
-      $('logoUp').onclick = function () { $('logoFile').click(); };
-      $('logoFile').onchange = async function () {
-        const f = this.files[0]; this.value = '';
-        if (!f) return;
-        const done = busy($('logoUp'), 'กำลังอัปโหลด...');
-        try {
-          const url = await shrinkLogo(f);
-          await FBL.saveLogo(url);
-          setLogoDb({ data: url, updatedBy: FBL.user.name, updatedAt: new Date().toISOString() });
-          try { localStorage.setItem('fdp_logo', 'new'); } catch (e) { /* ข้าม */ }
-          P.logoDefault = logoPref();
-          if (S.cur) P.draw();
-          toast('อัปโหลดตราแบบใหม่แล้ว');
-          renderSettings();
-        } catch (e) { toast(e.message || String(e), true); done(); }
-      };
-    }
-    if ($('logoDel')) $('logoDel').onclick = async function () {
-      if (!confirm('ลบตราแบบใหม่ที่อัปโหลดไว้?\nผังที่ใช้ตราแบบใหม่จะกลับไปใช้ตราแบบเดิม')) return;
-      const done = busy(this, 'กำลังลบ...');
-      try { await FBL.saveLogo(null); setLogoDb(null); toast('ลบตราแบบใหม่แล้ว'); renderSettings(); } catch (e) { toast(e.message, true); done(); }
-    };
     $('aiKey').value = c.key || '';
     $('aiSave').onclick = function () { AI.saveConfig({ key: $('aiKey').value.trim(), model: $('aiModel').value }); toast('บันทึกการตั้งค่า AI แล้ว'); };
     $('aiClear').onclick = function () { AI.clearConfig(); $('aiKey').value = ''; toast('ลบ key ออกจากเครื่องนี้แล้ว'); };
@@ -901,41 +872,20 @@
     if ($('demoReset')) $('demoReset').onclick = function () { if (confirm('ล้างข้อมูลทดลองทั้งหมดในเครื่องนี้?')) { FBL.resetDemo(); location.reload(); } };
   }
 
-  // ตราแบบใหม่: ใช้รูปที่อัปโหลดผ่านหน้าตั้งค่าก่อน (traffic_settings/logo) · ถ้าไม่มีใช้ไฟล์ logo-new.png ในโฟลเดอร์ระบบ (ถ้ามี)
-  let logoDb = null, logoFile = null;
-  function applyNewLogo() {
-    const src = (logoDb && logoDb.data) || logoFile;
-    window.LOGO_NEW_DATA = src || undefined;
-    if (src) P.logos.new = src; else delete P.logos.new;
+  // ตราแบบใหม่: ไฟล์กลางจากฐานข้อมูลกลาง (CNMaster.EMBLEM_URL) · โหลดไม่ได้ (ออฟไลน์/ฮับล่ม) = มีแต่ตราแบบเดิม
+  // ตราบนหัวเว็บ/หน้าล็อกอิน/ไอคอนแท็บ master-client.js เปลี่ยนให้เองอัตโนมัติ
+  function applyNewLogo(src) {
+    window.LOGO_NEW_DATA = src;
+    if (P.logos) P.logos.new = src;
     P.logoDefault = logoPref();
     if (S.cur) P.draw();
     if ($('view-settings') && $('view-settings').classList.contains('active')) renderSettings();
   }
-  function setLogoDb(d) { logoDb = d; applyNewLogo(); }
-  // ย่อรูปให้ด้านยาวไม่เกิน 600px (พอสำหรับพิมพ์ A3) และเล็กพอเก็บในเอกสารเดียวของ Firestore (จำกัด 1 MB)
-  function shrinkLogo(file) {
-    return new Promise(function (resolve, reject) {
-      if (!/^image\//.test(file.type)) { reject(new Error('เลือกไฟล์รูปภาพเท่านั้น')); return; }
-      const img = new Image(), url = URL.createObjectURL(file);
-      img.onload = function () {
-        URL.revokeObjectURL(url);
-        const w0 = img.naturalWidth || 600, h0 = img.naturalHeight || 600;
-        for (const max of [600, 450, 320]) {
-          const k = Math.min(1, max / Math.max(w0, h0)), c = document.createElement('canvas');
-          c.width = Math.round(w0 * k); c.height = Math.round(h0 * k);
-          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-          const out = c.toDataURL('image/png');
-          if (out.length < 700000) { resolve(out); return; }
-        }
-        reject(new Error('รูปใหญ่เกินไป ลองใช้รูปที่เรียบง่ายขึ้นหรือขนาดเล็กลง'));
-      };
-      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('เปิดรูปนี้ไม่ได้')); };
-      img.src = url;
-    });
+  if (window.CNMaster && CNMaster.EMBLEM_URL) {
+    const newLogo = new Image();
+    newLogo.onload = function () { applyNewLogo(CNMaster.EMBLEM_URL); };
+    newLogo.src = CNMaster.EMBLEM_URL;
   }
-  const newLogo = new Image();
-  newLogo.onload = function () { logoFile = 'logo-new.png'; applyNewLogo(); };
-  newLogo.src = 'logo-new.png';
 
   boot();
 })();
