@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>ระบบผังจราจรและทางเบี่ยง หมวดทางหลวงเชิงเนิน</title>
+<link rel="icon" href="logo.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<style id="pageStyle">@page{size:A4 landscape;margin:5mm}</style>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=Sarabun:wght@400;500;600;700&display=swap');
+
+/* โทนสีเดียวกับระบบผู้ควบคุมงานโครงการ: น้ำเงินกรมท่า + ทอง */
+:root{
+  --ink:#182430; --ink-soft:#4d5a66; --ink-mute:#8792a0;
+  --paper:#f3f5f8; --paper-2:#e6eef6; --card:#fff; --line:#dde2e8;
+  --brand-900:#0a2540; --brand-800:#123a5e; --brand-700:#1c4b73;
+  --acc:#1f5fbf; --gold:#FAC02E;
+  --ok:#1c8a53; --ok-bg:#e5f4ec; --warn:#b8650a; --warn-bg:#fdf1de; --bad:#c1402f; --bad-bg:#fbeae7; --info:#1c4b73; --info-bg:#e6eef6;
+  --shadow:0 1px 3px rgba(10,37,64,.08),0 4px 14px rgba(10,37,64,.06);
+  --radius:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:'Sarabun',sans-serif;background:var(--paper);color:var(--ink);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:'Kanit',sans-serif;font-weight:700}
+.shell{max-width:1500px;margin:0 auto;padding:0 18px 60px}
+
+/* ---------- ส่วนหัว (แบบเดียวกับระบบผู้ควบคุมงานโครงการ) ---------- */
+.app-header{background:radial-gradient(1100px 420px at 12% -20%, var(--brand-800) 0%, #071b30 55%);color:var(--paper);padding:20px 22px 0;border-bottom:1px solid rgba(0,0,0,.35)}
+.app-header .top-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;max-width:1500px;margin:0 auto}
+.app-header h1{font-size:21px;margin:0 0 3px;color:#fff}
+.brand-block{display:flex;align-items:flex-start;gap:14px}
+.dept-logo{width:50px;height:50px;flex:none;margin-top:3px}
+.app-header .sub{font-size:13px;color:#9DA0A8;margin:0}
+.app-header .who{font-size:12px;color:#787B84;margin:0;text-align:right}
+.app-header #btnLogout{background:transparent;border:none;color:#9DA0A8}
+.app-header #btnLogout:hover{color:#fff}
+.tabs{display:flex;max-width:1500px;margin:12px auto 0;overflow-x:auto;border-top:1px solid rgba(255,255,255,.08)}
+.tab-btn{font-family:'Kanit',sans-serif;font-weight:600;font-size:13px;background:transparent;border:none;color:#84878F;padding:9px 14px;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent}
+.tab-btn:hover{color:#DEDFE2}
+.tab-btn.active{color:#fff;border-bottom-color:var(--gold)}
+.demo-badge{display:inline-block;background:var(--gold);color:#3d2e00;font-family:'Kanit',sans-serif;font-weight:600;font-size:11.5px;border-radius:99px;padding:1px 10px;margin-left:6px;vertical-align:2px}
+.view{display:none;padding-top:20px}
+.view.active{display:block}
+
+/* ---------- การ์ด / ฟอร์ม / ปุ่ม ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;margin-bottom:14px;box-shadow:var(--shadow)}
+.section-title{font-family:'Kanit',sans-serif;font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px;margin:0 0 12px;color:var(--brand-900);flex-wrap:wrap}
+.section-title .sub{font-family:'Sarabun',sans-serif;font-weight:400;font-size:13px;color:var(--ink-soft)}
+.grid{display:grid;gap:10px}
+.grid-2{grid-template-columns:1fr 1fr}.grid-3{grid-template-columns:repeat(3,1fr)}
+.span-all{grid-column:1/-1}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field label{font-size:12.5px;color:var(--ink-soft);font-weight:600}
+.field input,.field select,.field textarea,.inp{font-family:'Sarabun',sans-serif;font-size:14.5px;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:#fff;color:var(--ink);width:100%;min-width:0}
+.field input:focus,.field select:focus,.field textarea:focus,.inp:focus{outline:none;border-color:#6c9fd8;box-shadow:0 0 0 2px #9cc0ea}
+.field textarea{resize:vertical;min-height:60px}
+.field label:has(input[type=checkbox]){display:flex;align-items:center;gap:6px;font-weight:500;color:var(--ink)}
+.field input[type=checkbox]{width:auto}
+.hint{font-size:12px;color:var(--ink-mute)}
+.pw-wrap{position:relative;display:flex}
+.pw-wrap input{flex:1;padding-right:38px}
+.pw-toggle{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;font-size:15px;color:var(--ink-soft);padding:4px 8px}
+.btn{font-family:'Kanit',sans-serif;font-weight:600;font-size:14px;border-radius:10px;border:1px solid transparent;padding:8px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;text-decoration:none}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--brand-800);border:2px solid var(--gold);color:#fff;box-shadow:0 2px 8px rgba(10,37,64,.25)}
+.btn-primary:hover{background:var(--brand-700)}
+.btn-gold{background:var(--gold);border-color:#e0a800;color:#3a2a00}
+.btn-gold:hover{background:#ffcc4d}
+.btn-outline{background:#fff;border-color:var(--line);color:var(--ink)}
+.btn-outline:hover{background:var(--paper-2)}
+.btn-ghost{background:transparent;border:none;color:var(--ink-soft)}
+.btn-danger{background:var(--bad-bg);color:var(--bad)}
+.btn-sm{padding:4px 10px;font-size:12.5px;border-radius:7px}
+.btn-lg{padding:12px 20px;font-size:16px;width:100%;justify-content:center}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-header{background:transparent;border:1px solid rgba(255,255,255,.35);color:#fff}
+.flex{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--ink-mute)}.small{font-size:12.5px}
+.badge{display:inline-block;font-size:12px;font-weight:600;border-radius:99px;padding:1px 9px;white-space:nowrap}
+.b-ok{background:var(--ok-bg);color:var(--ok)}.b-warn{background:var(--warn-bg);color:var(--warn)}.b-bad{background:var(--bad-bg);color:var(--bad)}.b-info{background:var(--info-bg);color:var(--info)}.b-mute{background:var(--paper-2);color:var(--ink-soft)}
+.chip{display:inline-block;border:1px solid var(--line);background:#fff;border-radius:99px;padding:4px 12px;font-size:12.5px;cursor:pointer;color:var(--ink-soft)}
+.chip.active{background:var(--brand-800);color:#fff;border-color:var(--gold)}
+.alert{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border-radius:9px;font-size:13.5px;margin-bottom:10px}
+.alert.warn{background:var(--warn-bg);color:#6b4a05}.alert.info{background:var(--info-bg);color:var(--brand-800)}.alert.bad{background:var(--bad-bg);color:#7d2a1f}.alert.ok{background:var(--ok-bg);color:#215a39}
+
+/* ---------- ตารางรายการผัง ---------- */
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:#fff}
+table.data{width:100%;border-collapse:collapse;font-size:14px}
+table.data th{background:var(--paper-2);color:var(--brand-900);font-weight:700;font-size:12.5px;text-align:left;padding:8px 10px;white-space:nowrap}
+table.data td{padding:8px 10px;border-bottom:1px solid var(--paper-2);vertical-align:middle}
+table.data tr.clickable{cursor:pointer}
+table.data tr.clickable:hover td{background:var(--paper-2)}
+.empty{padding:26px;text-align:center;color:var(--ink-mute)}
+.new-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+@media(max-width:860px){.new-cards{grid-template-columns:1fr}}
+.new-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;cursor:pointer;box-shadow:var(--shadow);text-align:left;font:inherit;display:flex;gap:12px;align-items:flex-start}
+.new-card:hover{border-color:var(--gold);background:#fffdf5}
+.new-card .ic{font-size:30px;line-height:1}
+.new-card b{font-family:'Kanit',sans-serif;font-size:16px;color:var(--brand-900);display:block}
+.new-card span{font-size:13px;color:var(--ink-soft)}
+
+/* ---------- หน้าแก้ไขผัง ---------- */
+.editor{display:grid;grid-template-columns:420px 1fr;gap:16px;align-items:start}
+@media(max-width:1100px){.editor{grid-template-columns:1fr}}
+.ed-form{max-height:calc(100vh - 150px);overflow-y:auto;padding-right:4px}
+@media(max-width:1100px){.ed-form{max-height:none}}
+.ed-right{position:sticky;top:10px}
+.pt-row{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:#fbfcfd}
+.pt-row .pt-h{font-weight:600;font-size:13px;color:var(--brand-800);margin-bottom:4px;display:flex;justify-content:space-between;align-items:center}
+.pt-row .grid{grid-template-columns:1.4fr 1fr}
+.pt-ll{display:flex;gap:6px}
+.pt-ll input{flex:1}
+.pt-ok{color:var(--ok);font-size:12px}
+.pt-bad{color:var(--bad);font-size:12px}
+.style-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.style-card{border:2px solid var(--line);border-radius:10px;padding:6px;cursor:pointer;background:#fff;text-align:center;font-size:12px;line-height:1.3}
+.style-card.active{border-color:var(--brand-800);background:#f3f7ff}
+.style-card .mini{height:54px;border-radius:6px;margin-bottom:4px;position:relative;overflow:hidden;background:#6b8f5b}
+.dev-palette{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.dev-btn{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:5px 6px;cursor:pointer;font:12.5px 'Sarabun',sans-serif;text-align:left}
+.dev-btn svg{width:26px;height:26px;flex:none}
+.dev-btn.active{outline:2px solid var(--brand-800);background:#f3f7ff}
+.ed-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+.ed-status{font-size:13px;color:var(--ink-soft);min-height:20px}
+.ed-status.err{color:var(--bad)}
+details.more{border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:12px}
+details.more summary{cursor:pointer;padding:10px 14px;font-family:'Kanit',sans-serif;font-weight:600;color:var(--brand-900)}
+details.more .in{padding:0 14px 14px}
+.ai-drop{border:2px dashed #b9c6d4;border-radius:10px;padding:8px;text-align:center;color:var(--ink-soft);font-size:12.5px;cursor:pointer;background:#fafcfe}
+.ai-drop.over{border-color:var(--acc);background:#eef5ff}
+.ai-files{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.ai-files img{width:56px;height:42px;object-fit:cover;border-radius:5px;border:1px solid var(--line)}
+
+/* ---------- ผังประกาศ (แผ่นจริง 1920×1080 ฯลฯ ย่อลงให้พอดีจอ) ---------- */
+.pz-stage{position:relative;overflow:hidden;background:#cfd8e3;border-radius:10px}
+.pz-sheet{position:absolute;top:0;left:0;transform-origin:0 0;background:#fff;display:flex;flex-direction:column;overflow:hidden;font-family:'Kanit',sans-serif}
+.pz-head{height:240px;display:flex;align-items:center;gap:36px;padding:0 60px 0 135px;background:#fff;flex:none}
+.pz-logo{width:150px;height:150px;object-fit:contain;flex:none}
+.pz-org{font-weight:700;font-size:64px;color:#111;line-height:1.15}
+.pz-sub{font-weight:600;font-size:40px;color:#111;margin-top:6px;line-height:1.25}
+.pz-body{flex:1;display:flex;min-height:0}
+.pz-mapwrap{flex:1;position:relative;min-width:0}
+.pz-map{position:absolute;inset:0;background:#556}
+.pz-left,.pz-right,.pz-ihead,.pz-ifoot,.pz-abanner,.pz-afoot,.pz-ilegend,.pz-north{display:none}
+.pz-br{position:absolute;right:30px;bottom:30px;z-index:600;display:flex;flex-direction:column;align-items:flex-end;gap:14px;pointer-events:none}
+.pz-apology{background:#e8847f;color:#111;font-weight:700;font-size:40px;padding:6px 22px;border-radius:10px;box-shadow:0 3px 10px rgba(0,0,0,.35)}
+.pz-legend{background:#fff;border-radius:14px;padding:12px 22px;box-shadow:0 3px 10px rgba(0,0,0,.35)}
+.pz-lg-h{font-weight:600;font-size:28px;color:#111;margin-bottom:4px}
+.pz-lg{display:flex;align-items:center;gap:14px;font-family:'Sarabun',sans-serif;font-size:26px;font-weight:500;color:#111;line-height:1.45}
+.pz-lg i{display:inline-block;width:46px;height:10px;border-radius:5px;flex:none}
+.pz-lgi{width:46px;display:flex;justify-content:center;flex:none}
+.pz-lgi svg{width:34px;height:34px;display:block}
+.pz-legend.compact .pz-lg{font-size:22px;line-height:1.35}
+.tone-street .pz-map .leaflet-tile-pane{filter:saturate(1.25) brightness(1.03)}
+.pz-sheet .leaflet-control-zoom a{width:60px;height:60px;line-height:60px;font-size:36px}
+.pz-sheet .leaflet-control-attribution{font-size:14px}
+.pz-sheet.placing .pz-map{cursor:crosshair}
+/* ป้ายบนแผนที่ */
+.pz-lbl,.pz-dev,.pz-chev,.pz-h{background:none;border:none}
+.pz-lbl>div{position:absolute;left:0;top:0;transform:translate(-50%,-50%);white-space:nowrap;cursor:move}
+.pz-box{background:#fff;border-radius:10px;box-shadow:0 2px 7px rgba(0,0,0,.45);padding:4px 18px;font-weight:600;font-size:30px;color:#111;margin:5px 0;text-align:center}
+.pz-stack{display:flex;flex-direction:column;align-items:center}
+.pz-km{background:#fff;border:2.5px solid #d32f2f;color:#d32f2f;font-weight:600;font-size:32px;padding:8px 26px;box-shadow:0 2px 7px rgba(0,0,0,.35)}
+.pz-dirtext{font-weight:700;font-size:50px;color:#ff1a1a;text-align:center;line-height:1.1;
+  text-shadow:3px 0 0 #fff,-3px 0 0 #fff,0 3px 0 #fff,0 -3px 0 #fff,2px 2px 0 #fff,-2px -2px 0 #fff,2px -2px 0 #fff,-2px 2px 0 #fff}
+.pz-arrow{display:block;margin:0 auto;filter:drop-shadow(0 2px 2px rgba(0,0,0,.4))}
+.pz-rot{position:absolute;right:-50px;top:0;display:flex;flex-direction:column;gap:6px}
+.pz-rot span{background:#fff;border-radius:50%;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:26px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.4);color:#123a5e}
+.pz-dirwrap:not(:hover) .pz-rot{opacity:0}
+.pz-call{display:flex;align-items:center;gap:16px;border:5px solid #fff;border-radius:24px;padding:14px 24px;color:#fff;font-weight:700;font-size:38px;line-height:1.2;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+.pz-call.green{background:#1d8f2e}.pz-call.red{background:#d61a1a}.pz-call.blue{background:#0277bd}
+.pz-call svg{width:74px;flex:none}
+.pz-call em{font-style:normal;color:#ffe600}
+.pz-call small{display:block;font-size:27px;font-weight:600}
+.pz-call.small{font-size:30px;padding:8px 18px;border-width:4px;border-radius:16px}
+.pz-call.small small{font-size:24px}
+.pz-ired{display:flex;align-items:center;gap:12px;background:#d61a1a;color:#fff;border:3px solid #fff;border-radius:14px;padding:8px 18px;font-size:30px;font-weight:700;line-height:1.2;box-shadow:0 3px 10px rgba(0,0,0,.45)}
+.pz-ired svg{width:52px}.pz-ired small{font-size:23px}
+.pz-ipill{background:#1d4fd8;color:#fff;border:3px solid #fff;border-radius:12px;padding:6px 18px;font-size:28px;font-weight:600;box-shadow:0 3px 8px rgba(0,0,0,.45)}
+.pz-ipill small{font-size:22px}
+.pz-dev svg{width:100%;height:100%;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.65))}
+.pz-devt{position:absolute;left:calc(100% + 8px);top:50%;transform:translateY(-50%);background:#fff;border:2px solid #111;border-radius:6px;padding:2px 10px;font:600 21px 'Kanit',sans-serif;white-space:nowrap;color:#111}
+.pz-chev svg{width:24px;height:24px;display:block}
+.pz-h div{width:26px;height:26px;border-radius:50%;background:#fff;border:5px solid var(--c);box-shadow:0 1px 4px rgba(0,0,0,.6);cursor:grab;margin:2px}
+.pz-h.end div{background:var(--c);border-color:#fff}
+/* สไตล์: เตือนภัย แนวตั้ง */
+.st-alert .pz-head,.st-alert .pz-br{display:none}
+.st-alert .pz-abanner{display:flex;position:absolute;left:24px;right:24px;top:22px;z-index:600;background:#d61a1a;border:6px solid #fff;border-radius:28px;box-shadow:0 6px 18px rgba(0,0,0,.5);align-items:center;gap:22px;padding:18px 26px;pointer-events:none}
+.pz-abanner svg{width:150px;flex:none}
+.pz-abanner>div{flex:1;text-align:center}
+.pz-a1{font-size:54px;color:#fff;font-weight:700;line-height:1.15}
+.pz-a2{font-size:56px;color:#ffe600;font-weight:700;line-height:1.1}
+.pz-a3{font-size:36px;color:#fff;font-weight:600}
+.st-alert .pz-afoot{display:flex;position:absolute;left:24px;bottom:24px;z-index:600;background:rgba(255,255,255,.93);border-radius:14px;padding:8px 18px;align-items:center;gap:12px;font-size:28px;font-weight:600;color:#123a5e;pointer-events:none}
+.pz-afoot .pz-logo{width:64px;height:64px}
+/* สไตล์: อินโฟกราฟิก */
+.st-info{background:linear-gradient(180deg,#0a2352,#0d3a78)!important}
+.st-info .pz-head,.st-info .pz-br{display:none}
+.st-info .pz-ihead{display:flex;height:220px;align-items:center;gap:30px;padding:0 50px;color:#fff;flex:none}
+.pz-badge{display:flex;align-items:center;gap:12px;background:#d61a1a;border:4px solid #fff;border-radius:44px;padding:10px 28px;font-size:46px;font-weight:700;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.pz-badge svg{width:64px}
+.pz-ititle{flex:1;min-width:0}
+.pz-it1,.pz-it2{font-size:70px;font-weight:700;line-height:1.15}
+.pz-it2{color:#ffd600;margin-left:18px}
+.pz-isub{font-size:30px;color:#dbe6ff;font-style:italic;font-family:'Sarabun',sans-serif;font-weight:600}
+.st-info .pz-left,.st-info .pz-right{display:flex;flex-direction:column;width:480px;flex:none;background:#fff;margin:0 18px;border-radius:22px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+.st-info .pz-mapwrap{border-radius:22px;overflow:hidden;border:4px solid #fff}
+.pz-ph{display:flex;align-items:center;gap:14px;font-size:40px;font-weight:700;color:#fff;padding:14px 22px}
+.pz-ph.red{background:#c62828}.pz-ph.green{background:#1d8f2e}
+.pz-ph svg{width:64px;flex:none}
+.pz-pstrip{background:#ffd600;color:#0b2a5b;font-weight:700;font-size:28px;padding:8px 20px;text-align:center}
+.pz-lsteps{list-style:none;margin:0;padding:16px 20px;flex:1;font-family:'Sarabun',sans-serif;font-weight:600;font-size:28px;color:#132;display:flex;flex-direction:column;gap:14px;line-height:1.3}
+.pz-lsteps li{display:flex;gap:14px;align-items:flex-start}
+.pz-lsteps b{flex:none;width:48px;height:48px;border-radius:50%;background:#9d1b1b;color:#fff;display:flex;align-items:center;justify-content:center;font-size:28px;font-family:'Kanit',sans-serif}
+.pz-lavoid{display:flex;align-items:center;gap:16px;background:#c62828;color:#fff;margin:0 16px 16px;border-radius:16px;padding:14px 18px;font-size:29px;font-weight:700;line-height:1.25}
+.pz-lavoid svg{width:66px;flex:none}
+.pz-lavoid small{font-size:23px}
+.pz-rnotes{list-style:none;margin:0;padding:18px 20px;flex:1;font-family:'Sarabun',sans-serif;font-weight:600;font-size:28px;color:#132;display:flex;flex-direction:column;gap:16px;line-height:1.3}
+.pz-rnotes li{display:flex;gap:12px;align-items:flex-start}
+.pz-rnotes svg{width:42px;flex:none}
+.pz-rwarn{display:flex;gap:14px;align-items:center;background:#ffd600;margin:0 16px 16px;border-radius:16px;padding:12px 16px;font-size:24px;font-weight:600;color:#1b1b1b;line-height:1.25}
+.pz-rwarn svg{width:72px;flex:none}
+.st-info .pz-ifoot{display:flex;height:150px;flex:none;align-items:center;justify-content:center;position:relative;color:#fff}
+.pz-slogan{text-align:center}
+.pz-slogan1{font-size:56px;font-weight:700;font-style:italic;line-height:1.1}
+.pz-slogan2{font-size:30px;font-style:italic}
+.pz-hotline{position:absolute;right:30px;display:flex;gap:14px;align-items:center;background:#b71c1c;border:3px solid #fff;border-radius:20px;padding:10px 24px;font-size:24px;line-height:1.2}
+.pz-hotline b{font-size:46px}
+.pz-hotline svg{width:58px}
+.st-info .pz-ilegend{display:block;position:absolute;top:18px;left:50%;transform:translateX(-50%);z-index:600;background:#fff;border-radius:14px;padding:8px 20px;font:600 24px 'Sarabun',sans-serif;color:#111;box-shadow:0 3px 10px rgba(0,0,0,.4);white-space:nowrap}
+.pz-ilegend div{display:flex;gap:12px;align-items:center}
+.pz-ilegend i{width:54px;height:9px;border-radius:5px;display:inline-block}
+.st-info .pz-north{display:block;position:absolute;top:18px;right:18px;z-index:600;width:64px;background:#fff;border-radius:10px;padding:4px}
+.st-info .pz-body{padding-bottom:0}
+
+/* ---------- พิมพ์ผัง ---------- */
+@media print{
+  body.printing-poster .no-print,body.printing-poster .app-header,body.printing-poster .toast{display:none!important}
+  body.printing-poster .shell{padding:0;max-width:none}
+  body.printing-poster .view{padding:0}
+  body.printing-poster .editor{display:block}
+  body.printing-poster .pz-stage{overflow:visible;background:none;border-radius:0}
+  body.printing-poster .pz-rot,body.printing-poster .leaflet-control-zoom{display:none!important}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+
+/* ---------- ทั่วไป ---------- */
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--brand-900);color:#fff;padding:11px 20px;border-radius:10px;font-size:14px;z-index:9500;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw}
+.toast.show{opacity:1}
+.toast.err{background:var(--bad)}
+.page-loading-overlay{position:fixed;inset:0;background:var(--paper);z-index:100;display:flex;align-items:center;justify-content:center;transition:opacity .25s}
+.page-loading-overlay.hide{opacity:0;pointer-events:none}
+.page-loading-spin{width:26px;height:26px;border:3px solid var(--paper-2);border-top-color:var(--gold);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- หน้าล็อกอิน (แบบเดียวกับระบบผู้ควบคุมงานโครงการ) ---------- */
+.auth-gate{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;padding:18px;overflow:auto;background:linear-gradient(160deg,#0a2540 0%,#123a5e 55%,#1f5fbf 100%)}
+.auth-gate.show{display:flex}
+.auth-card{background:#fff;border-radius:18px;padding:30px 28px 26px;width:100%;max-width:410px;box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center}
+.auth-logo{width:72px;height:72px;margin:0 auto 6px;display:block}
+.auth-card h2{margin:4px 0 2px;font-size:22px;color:#0a2540}
+.auth-sub{margin:0 0 18px;font-size:13px;color:var(--ink-mute)}
+.auth-h3{margin:0 0 12px;font-size:16px;color:#182430;text-align:left}
+.auth-card .field{text-align:left;margin-bottom:12px}
+.auth-card .field select{height:37px}
+.auth-error{color:var(--bad);background:var(--bad-bg);padding:8px 10px;border-radius:8px;margin:0 0 12px;text-align:left}
+.auth-btn{width:100%;justify-content:center}
+.auth-demo{margin-top:14px;font-size:12px;color:var(--warn);background:var(--warn-bg);border-radius:8px;padding:7px 10px;text-align:left}
+</style>
+</head>
+<body>
+<div class="page-loading-overlay" id="pageLoadingOverlay"><span class="page-loading-spin"></span></div>
+
+<header class="app-header" id="appHeader" style="display:none">
+  <div class="top-row">
+    <div class="brand-block">
+      <img src="logo.png" alt="ตรากรมทางหลวง" class="dept-logo">
+      <div>
+        <h1>ระบบผังจราจรและทางเบี่ยง <span class="demo-badge" id="demoBadge" style="display:none">โหมดทดลอง</span></h1>
+        <p class="sub">ทางเบี่ยงอุทกภัย · สิ่งอำนวยความปลอดภัย · แนวทางระบายน้ำ — หมวดทางหลวงเชิงเนิน · แขวงทางหลวงระยอง</p>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <p class="who" id="whoDisplay"></p>
+      <button class="btn btn-sm btn-header" id="btnLogout">ออกจากระบบ</button>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab-btn active" data-view="list">ผังทั้งหมด</button>
+    <button class="tab-btn" data-view="edit">สร้าง / แก้ไขผัง</button>
+    <button class="tab-btn" data-view="settings">ตั้งค่า</button>
+  </nav>
+</header>
+
+<main class="shell" id="main" style="display:none">
+  <section class="view active" id="view-list"></section>
+  <section class="view" id="view-edit"></section>
+  <section class="view" id="view-settings"></section>
+</main>
+
+<div class="toast" id="toast"></div>
+<div class="auth-gate" id="authGate"></div>
+
+<script src="firebase-layer.js"></script>
+<script src="route.js"></script>
+<script src="poster.js"></script>
+<script src="ai.js"></script>
+<script src="logo-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

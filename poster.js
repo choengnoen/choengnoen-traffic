@@ -1,0 +1,595 @@
+/* ==========================================================================
+   poster.js — วาดผังประกาศ (ภาพโพสต์)
+
+   ผัง 2 ชนิด
+     flood  — ทางเบี่ยงอุทกภัย (ภาพรวม) มี 3 สไตล์
+                doh   แบบกรมทางหลวง 16:9  — หัวขาว + ตรากรม · ป้าย กม. · ป้ายทางเบี่ยง · ลูกศรบอกทิศ · กล่องคำอธิบาย
+                alert แบบเตือนภัย 4:5    — ป้ายแดงหัวผัง · เส้นมีลูกศร · กล่องชี้ "ใช้เส้นทางนี้ / ควรเลี่ยง"
+                info  แบบอินโฟกราฟิก 3:2 — หัวน้ำเงิน · แผงขั้นตอนการเดินทาง · แผงข้อควรทราบ · สายด่วน
+     safety — ติดตั้งสิ่งอำนวยความปลอดภัย (ภาพขยาย) ใช้สไตล์ doh: เขตงานสีส้ม · ป้ายเตือน · กรวย · แผงกั้น ฯลฯ
+
+   ทุกป้าย/อุปกรณ์ลากย้ายได้ · คลิกเส้นแล้วลากจุดวงกลมเพื่อปรับเส้น (เส้นวิ่งตามถนนใหม่เอง)
+   ========================================================================== */
+(function () {
+  'use strict';
+  const RED = '#e01010', BLUE = '#1f6fe0', ORANGE = '#ff8f00', GREEN = '#3bd13b';
+  const STY = {
+    doh:   { w: 1920, h: 1080, name: 'แบบกรมทางหลวง (16:9)' },
+    alert: { w: 1080, h: 1350, name: 'แบบเตือนภัย แนวตั้ง (4:5)' },
+    info:  { w: 1920, h: 1280, name: 'แบบอินโฟกราฟิกประชาสัมพันธ์ (3:2)' }
+  };
+  const esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  const lines = function (s) { return String(s || '').split(/\r?\n/).map(function (x) { return x.trim(); }).filter(Boolean); };
+
+  /* ---------- อุปกรณ์ความปลอดภัย ---------- */
+  const DEV = {
+    sign:    { name: 'ป้ายเตือน', size: 58, svg: '<svg viewBox="0 0 60 60"><path d="M30 2 L58 30 L30 58 L2 30 Z" fill="#ff9800" stroke="#111" stroke-width="3"/><path d="M30 16v18" stroke="#111" stroke-width="6" stroke-linecap="round"/><circle cx="30" cy="43" r="3.6" fill="#111"/></svg>' },
+    speed:   { name: 'ป้ายจำกัดความเร็ว', size: 56, svg: null },
+    arrow:   { name: 'ป้ายลูกศรบังคับชิด', size: 60, svg: null },
+    cone:    { name: 'กรวยยาง', size: 26, svg: '<svg viewBox="0 0 40 40"><path d="M16 3h8l9 31H7z" fill="#ff6d00" stroke="#222" stroke-width="2"/><path d="M13 14h14l2 7H11z" fill="#fff"/><rect x="3" y="33" width="34" height="5" rx="1" fill="#333"/></svg>' },
+    barrier: { name: 'แผงกั้น', size: 60, svg: '<svg viewBox="0 0 60 40"><rect x="2" y="8" width="56" height="16" fill="#fff" stroke="#222" stroke-width="2"/><path d="M8 8l-6 9M18 8l-11 16M29 8l-11 16M40 8l-11 16M51 8l-11 16M58 13l-7 11" stroke="#e01010" stroke-width="5"/><rect x="8" y="24" width="4" height="14" fill="#333"/><rect x="48" y="24" width="4" height="14" fill="#333"/></svg>' },
+    light:   { name: 'ไฟกระพริบ', size: 34, svg: '<svg viewBox="0 0 40 40"><circle cx="20" cy="17" r="13" fill="#ffeb3b" stroke="#222" stroke-width="2"/><circle cx="20" cy="17" r="6.5" fill="#ff9800"/><rect x="18" y="30" width="4" height="9" fill="#333"/></svg>' },
+    flag:    { name: 'เจ้าหน้าที่โบกธง', size: 46, svg: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#1565c0" stroke="#fff" stroke-width="2.5"/><circle cx="17" cy="12" r="4.5" fill="#fff"/><path d="M9 32c1-7 4-11 8-11s7 4 8 11z" fill="#fff"/><path d="M25 22 L25 8" stroke="#fff" stroke-width="2"/><path d="M25 8h9v6h-9z" fill="#e01010"/></svg>' },
+    end:     { name: 'ป้ายสิ้นสุดเขตงาน', size: 50, svg: '<svg viewBox="0 0 60 40"><rect x="2" y="2" width="56" height="36" rx="4" fill="#fff" stroke="#111" stroke-width="3"/><path d="M12 20h36" stroke="#1c8a53" stroke-width="6"/><path d="M40 11l10 9-10 9" fill="none" stroke="#1c8a53" stroke-width="5"/></svg>' },
+    // อุปกรณ์งานระบายน้ำ
+    pump:    { name: 'เครื่องสูบน้ำ', size: 50, svg: '<svg viewBox="0 0 40 40"><rect x="3" y="9" width="25" height="21" rx="3" fill="#455a64" stroke="#fff" stroke-width="2.5"/><circle cx="15.5" cy="19.5" r="6" fill="#90caf9"/><path d="M28 15h7v5" stroke="#0288d1" stroke-width="3.5" fill="none"/><path d="M35 24c0 3-2 4.5-2 4.5s-2-1.5-2-4.5 2-4.5 2-4.5 2 1.5 2 4.5z" fill="#0288d1"/></svg>' },
+    culvert: { name: 'ท่อลอด/ท่อระบายน้ำ', size: 46, svg: '<svg viewBox="0 0 40 40"><rect x="2" y="12" width="36" height="16" rx="3" fill="#9e9e9e" stroke="#fff" stroke-width="2.5"/><circle cx="12" cy="20" r="5" fill="#263238"/><circle cx="28" cy="20" r="5" fill="#263238"/></svg>' },
+    sandbag: { name: 'แนวกระสอบทราย', size: 40, svg: '<svg viewBox="0 0 40 30"><rect x="2" y="15" width="17" height="11" rx="5" fill="#c8a165" stroke="#5d4037" stroke-width="2"/><rect x="21" y="15" width="17" height="11" rx="5" fill="#c8a165" stroke="#5d4037" stroke-width="2"/><rect x="11" y="4" width="17" height="11" rx="5" fill="#c8a165" stroke="#5d4037" stroke-width="2"/></svg>' }
+  };
+  const DEV_SAFETY = ['sign', 'speed', 'arrow', 'cone', 'barrier', 'light', 'flag', 'end'];
+  const DEV_DRAIN = ['pump', 'culvert', 'sandbag', 'sign', 'cone', 'barrier'];
+  function devSvg(d) {
+    if (d.t === 'speed') return '<svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="27" fill="#fff" stroke="#e01010" stroke-width="7"/><text x="30" y="39" text-anchor="middle" font-size="24" font-weight="700" font-family="Kanit,sans-serif" fill="#111">' + esc(d.text || '') + '</text></svg>';
+    if (d.t === 'arrow') {
+      const left = /ซ้าย/.test(d.text || '');
+      return '<svg viewBox="0 0 70 44"><rect x="1" y="1" width="68" height="42" rx="4" fill="#111"/><path d="' + (left ? 'M56 22H18M28 11 16 22l12 11' : 'M14 22h38M42 11l12 11-12 11') + '" fill="none" stroke="#ffd600" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    }
+    return DEV[d.t].svg;
+  }
+  const ICON = {
+    warn: '<svg viewBox="0 0 100 90"><path d="M50 4 L96 86 H4 Z" fill="#ffd600" stroke="#111" stroke-width="6" stroke-linejoin="round"/><path d="M50 30v28" stroke="#111" stroke-width="10" stroke-linecap="round"/><circle cx="50" cy="72" r="6" fill="#111"/></svg>',
+    go: '<svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="27" fill="#fff"/><path d="M14 30h26M32 19l11 11-11 11" fill="none" stroke="#1d8f2e" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    no: '<svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="27" fill="#e01010" stroke="#fff" stroke-width="4"/><rect x="12" y="25" width="36" height="10" fill="#fff"/></svg>',
+    mega: '<svg viewBox="0 0 60 50"><path d="M6 18h10l26-13v40L16 32H6z" fill="#fff"/><path d="M16 32l4 14h8l-4-14" fill="#fff"/><path d="M48 15c4 3 6 7 6 10s-2 7-6 10" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/></svg>',
+    car: '<svg viewBox="0 0 64 40"><path d="M8 22l6-13c1-3 3-4 6-4h24c3 0 5 1 6 4l6 13v12H8z" fill="#fff"/><rect x="16" y="9" width="32" height="11" rx="2" fill="#1d3f8f"/><circle cx="18" cy="32" r="5" fill="#1d3f8f"/><circle cx="46" cy="32" r="5" fill="#1d3f8f"/></svg>',
+    check: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#1d8f2e"/><path d="M11 20l6 6 12-13" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    cross: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#fff"/><path d="M13 13l14 14M27 13 13 27" stroke="#c62828" stroke-width="5" stroke-linecap="round"/></svg>',
+    phone: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#fff"/><path d="M14 10c-2 1-3 3-2 6 2 6 6 11 12 13 3 1 5 0 6-2l-4-5-3 2c-3-1-5-4-6-7l2-3z" fill="#b71c1c"/></svg>',
+    north: '<svg viewBox="0 0 40 56"><text x="20" y="13" text-anchor="middle" font-size="14" font-weight="700" font-family="Kanit,sans-serif" fill="#111">N</text><circle cx="20" cy="36" r="18" fill="#fff" stroke="#111" stroke-width="2"/><path d="M20 20 L28 46 L20 40 L12 46 Z" fill="#111"/></svg>',
+    cone: DEV.cone.svg
+  };
+  ICON.drop = '<svg viewBox="0 0 40 52"><path d="M20 2C12 14 5 22 5 32a15 15 0 0 0 30 0C35 22 28 14 20 2z" fill="#e01010" stroke="#fff" stroke-width="3"/><path d="M13 33c0 4 3 7 7 7" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/></svg>';
+  ICON.outlet = '<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" fill="#0277bd" stroke="#fff" stroke-width="3.5"/><path d="M10 20c3-3 6-3 9 0s6 3 9 0 6-3 7 0M10 28c3-3 6-3 9 0s6 3 9 0 6-3 7 0" stroke="#fff" stroke-width="3" fill="none"/></svg>';
+  const P = window.Poster = { DEV: DEV, devSvg: devSvg, STY: STY, ICON: ICON, DEV_SAFETY: DEV_SAFETY, DEV_DRAIN: DEV_DRAIN };
+  const DRAIN = '#00b0ff', WATER = '#4fc3f7';
+  let map, sheet, stage, plan, onChange, layers, deco, handles, selected = null, bases, placing = null;
+
+  /* ---------- ตัวช่วย ---------- */
+  function kmNum(s) {
+    const m = String(s || '').match(/(\d+)\s*\+\s*(\d{1,3})/);
+    return m ? +m[1] + (+m[2]) / 1000 : null;
+  }
+  P.kmNum = kmNum;
+  function fmtKm(m) { return (m / 1000).toFixed(2) + ' กม.'; }
+  function has(p) { return !!p && isFinite(p.lat) && isFinite(p.lng) && !!(p.lat || p.lng); }
+  P.has = has;
+  function LL(p) { return L.latLng(p.lat, p.lng); }
+  function px(p) { return map.latLngToContainerPoint(LL(p)); }
+  function geo(pt) { const l = map.containerPointToLatLng(pt); return { lat: l.lat, lng: l.lng }; }
+  function clampPt(pt, mx, my) { const s = map.getSize(); return L.point(Math.max(mx, Math.min(s.x - mx, pt.x)), Math.max(my, Math.min(s.y - my, pt.y))); }
+  // isSafety() = ผังที่ไม่ใช่ทางเบี่ยงอุทกภัย (ความปลอดภัย / ระบายน้ำ) — ใช้สไตล์ doh และมีอุปกรณ์วางเองได้
+  function isSafety() { return plan.kind !== 'flood'; }
+  function isDrain() { return plan.kind === 'drain'; }
+  function style() { return isSafety() ? 'doh' : (STY[plan.style] ? plan.style : 'doh'); }
+  P.style = function () { return plan ? style() : 'doh'; };
+  function mainKey() { return plan.kind === 'safety' ? 'zone' : isDrain() ? 'drain' : 'flood'; }
+  function routeOf(key) { return plan[key]; }
+  function lineField(key) { return key + 'Line'; }
+  function linePts(key) {
+    const r = routeOf(key);
+    if (!r) return [];
+    if (plan[lineField(key)]) return RT.decode(plan[lineField(key)]);
+    return has(r.a) && has(r.b) ? [r.a, r.b] : [];
+  }
+  function changed(what) { if (onChange) onChange(what || 'plan'); }
+  function kmRange(r) { return r.a.km ? 'กม.' + r.a.km + (r.b.km && r.b.km !== r.a.km ? ' - ' + r.b.km : '') : ''; }
+  P.kmRange = kmRange;
+
+  /* ---------- ข้อความอัตโนมัติ ---------- */
+  P.autoHeadline = function (pl) {
+    if (pl.kind === 'drain') {
+      return 'แนวทางระบายน้ำ บริเวณ' + (pl.place || (pl.drain.a.name || 'จุดน้ำท่วมขัง')) + (pl.road ? ' ทางหลวงหมายเลข ' + pl.road : '') + (pl.drain.a.km ? ' กม.' + pl.drain.a.km : '');
+    }
+    if (pl.kind === 'safety') {
+      return 'ผังติดตั้งป้ายและอุปกรณ์ความปลอดภัย ' + (pl.workType || 'งานก่อสร้าง') + (pl.road ? ' ทางหลวงหมายเลข ' + pl.road : '') + (kmRange(pl.zone) ? ' ' + kmRange(pl.zone) : '');
+    }
+    return 'เบี่ยงการจราจรน้ำท่วมทางบริเวณ ' + (pl.road ? 'ทางหลวงหมายเลข ' + pl.road : '') + (pl.section ? ' ตอน ' + pl.section : '');
+  };
+  P.autoSteps = function (pl) {
+    const a = pl.detour.a, b = pl.detour.b, road = pl.road ? 'ทล.' + pl.road : 'ทางหลวง';
+    const s = [];
+    s.push('เดินทางตาม ' + road + ' ถึง ' + (a.name || 'จุดแยกทางเบี่ยง') + (a.km ? ' (กม.' + a.km + ')' : ''));
+    s.push('เลี้ยวเข้าเส้นทางเบี่ยงตามป้ายบอกทาง' + (pl.detourLen ? ' ระยะทางประมาณ ' + fmtKm(pl.detourLen) : ''));
+    s.push('กลับเข้าสู่ ' + road + ' ที่ ' + (b.name || 'จุดกลับเข้าทางหลัก') + (b.km ? ' (กม.' + b.km + ')' : ''));
+    s.push('หลีกเลี่ยงบริเวณ' + (pl.place || 'ที่น้ำท่วม') + (kmRange(pl.flood) ? ' ' + kmRange(pl.flood) : ''));
+    return s.join('\n');
+  };
+  P.autoNotes = function (pl) {
+    const fl = P.floodLength(pl);
+    return [
+      'ช่วงน้ำท่วมทาง ' + (kmRange(pl.flood) || '') + (fl ? ' ระยะ ' + fmtKm(fl) : ''),
+      'มีป้ายและเจ้าหน้าที่อำนวยความสะดวกตลอดเส้นทาง',
+      'เปิดไฟหน้า ลดความเร็ว เว้นระยะห่าง',
+      'ไม่ขับฝ่าน้ำท่วมที่ไม่ทราบความลึก'
+    ].join('\n');
+  };
+  P.autoAlert2 = function (pl) { return (pl.road ? 'ทล.' + pl.road + ' ' : '') + (kmRange(pl.flood) || '').replace(/\+\d{3}/g, function (x) { return x === '+000' ? '' : x; }); };
+
+  function headline() {
+    const h = esc((plan.headline || '').trim() || P.autoHeadline(plan));
+    const hot = isDrain() ? 'ระบายน้ำ' : isSafety() ? (plan.workType || '') : 'น้ำท่วมทาง';
+    return hot ? h.replace(esc(hot), '<span style="color:#e01010">' + esc(hot) + '</span>') : h;
+  }
+  P.floodLength = function (pl) {
+    pl = pl || plan;
+    if (pl.kind === 'drain') return pl.drainLen || 0;
+    const r = pl.kind === 'safety' ? pl.zone : pl.flood;
+    const a = kmNum(r.a.km), b = kmNum(r.b.km);
+    if (a != null && b != null && a !== b) return Math.abs(b - a) * 1000;
+    return (pl.kind === 'safety' ? pl.zoneLen : pl.floodLen) || 0;
+  };
+
+  function q(sel) { return sheet.querySelector(sel); }
+  function renderStatic() {
+    const st = style(), org = plan.org || 'แขวงทางหลวงระยอง', fl = P.floodLength();
+    sheet.className = 'pz-sheet st-' + st + (plan.base === 'street' ? ' tone-street' : '');
+    sheet.style.width = STY[st].w + 'px'; sheet.style.height = STY[st].h + 'px';
+    // doh
+    q('.pz-org').textContent = org;
+    q('.pz-sub').innerHTML = headline();
+    const hl = q('.pz-sub').textContent.length;   // หัวเรื่องยาว → ย่อตัวอักษรให้อยู่บรรทัดเดียว
+    q('.pz-sub').style.fontSize = hl > 78 ? '30px' : hl > 66 ? '34px' : hl > 56 ? '37px' : '';
+    q('.pz-apology').textContent = plan.apology || 'ขออภัยในความไม่สะดวก';
+    let rows;
+    if (isSafety()) {
+      const used = [];
+      (plan.devices || []).forEach(function (d) { if (DEV[d.t] && used.indexOf(d.t) < 0) used.push(d.t); });
+      rows = (isDrain()
+        ? '<div class="pz-lg"><i style="background:' + DRAIN + '"></i>' + esc(plan.legendDrain || 'แนวทางระบายน้ำ') + (fl ? ' (' + fmtKm(fl) + ')' : '') + '</div>' +
+          ((plan.waterLines || []).length ? '<div class="pz-lg"><i style="background:' + WATER + ';height:7px"></i>คลอง / ลำราง / แหล่งน้ำ</div>' : '') +
+          '<div class="pz-lg"><span class="pz-lgi">' + ICON.drop + '</span>จุดน้ำท่วมขัง</div>' +
+          '<div class="pz-lg"><span class="pz-lgi">' + ICON.outlet + '</span>จุดระบายน้ำออก' + (plan.drop != null ? ' (ต่างระดับ ~' + (+plan.drop).toFixed(1) + ' ม.)' : '') + '</div>'
+        : '<div class="pz-lg"><i style="background:' + ORANGE + '"></i>' + esc(plan.legendZone || 'เขตปฏิบัติงาน / ช่องจราจรที่ปิด') + (fl ? ' (' + fmtKm(fl) + ')' : '') + '</div>') +
+        used.map(function (t) {
+          const n = (plan.devices || []).filter(function (d) { return d.t === t; }).length;
+          return '<div class="pz-lg"><span class="pz-lgi">' + devSvg({ t: t, text: t === 'arrow' ? 'ขวา' : '' }) + '</span>' + DEV[t].name + ' (' + n + ')</div>';
+        }).join('');
+    } else {
+      const dl = plan.detourLen || 0;
+      rows = '<div class="pz-lg"><i style="background:' + RED + '"></i>' + esc(plan.legendFlood || 'บริเวณที่น้ำท่วมทาง') + (fl ? ' (' + fmtKm(fl) + ')' : '') + '</div>' +
+        '<div class="pz-lg"><i style="background:' + BLUE + '"></i>' + esc(plan.legendDetour || 'เส้นทางเบี่ยงการจราจร') + (dl ? ' (' + fmtKm(dl) + ')' : '') + '</div>';
+    }
+    q('.pz-legend').innerHTML = '<div class="pz-lg-h">คำอธิบายสัญลักษณ์</div>' + rows;
+    q('.pz-legend').classList.toggle('compact', isSafety());
+    if (isSafety()) return;
+    // alert
+    q('.pz-a1').textContent = plan.alert1 || 'หลีกเลี่ยงเส้นทางน้ำท่วม';
+    q('.pz-a2').textContent = plan.alert2 || P.autoAlert2(plan);
+    q('.pz-a3').textContent = plan.alert3 || 'ทั้งฝั่งขาเข้าและขาออก';
+    q('.pz-aorg').textContent = org;
+    // info
+    q('.pz-it1').textContent = plan.info1 || 'เส้นทางเลี่ยงน้ำท่วม';
+    q('.pz-it2').textContent = plan.info2 || (plan.road ? 'ทล.' + plan.road : '');
+    q('.pz-isub').textContent = plan.infoSub || '“โปรดตรวจสอบเส้นทางก่อนออกเดินทาง และขับขี่ด้วยความระมัดระวัง”';
+    q('.pz-lsteps').innerHTML = lines(plan.steps || P.autoSteps(plan)).map(function (s, i) {
+      return '<li><b>' + (i + 1) + '</b><span>' + esc(s) + '</span></li>';
+    }).join('');
+    q('.pz-lavoid span').innerHTML = 'หลีกเลี่ยง<br>' + esc(plan.place || 'บริเวณน้ำท่วม') + '<br><small>(น้ำท่วมทาง)</small>';
+    q('.pz-rnotes').innerHTML = lines(plan.notes || P.autoNotes(plan)).map(function (s) { return '<li>' + ICON.check + '<span>' + esc(s) + '</span></li>'; }).join('');
+    q('.pz-slogan2').textContent = org + ' ห่วงใยประชาชน';
+    q('.pz-hotline b').textContent = plan.hotline || 'โทร. 1586';
+    q('.pz-ilegend').innerHTML = '<div><i style="background:' + RED + '"></i>เส้นทางหลัก (น้ำท่วม ควรหลีกเลี่ยง)</div><div><i style="background:' + BLUE + '"></i>เส้นทางที่แนะนำ</div>';
+  }
+
+  /* ---------- สร้างแผ่นผัง ---------- */
+  P.mount = function (stageEl, logoSrc) {
+    stage = stageEl;
+    const logo = '<img class="pz-logo" alt="ตรากรมทางหลวง" src="' + esc(logoSrc) + '">';
+    stage.innerHTML = '<div class="pz-sheet st-doh">' +
+      '<div class="pz-head">' + logo + '<div><div class="pz-org"></div><div class="pz-sub"></div></div></div>' +
+      '<div class="pz-ihead"><div class="pz-badge">' + ICON.mega + 'ประชาสัมพันธ์</div><div class="pz-ititle"><div><span class="pz-it1"></span> <span class="pz-it2"></span></div><div class="pz-isub"></div></div>' + logo + '</div>' +
+      '<div class="pz-body">' +
+        '<div class="pz-left"><div class="pz-ph red">' + ICON.car + 'เส้นทางแนะนำ</div><div class="pz-pstrip">แนะนำให้ใช้เส้นทางเลี่ยงน้ำท่วม</div><ol class="pz-lsteps"></ol><div class="pz-lavoid">' + ICON.cross + '<span></span></div></div>' +
+        '<div class="pz-mapwrap"><div class="pz-map"></div>' +
+          '<div class="pz-br"><div class="pz-apology"></div><div class="pz-legend"></div></div>' +
+          '<div class="pz-abanner">' + ICON.warn + '<div><div class="pz-a1"></div><div class="pz-a2"></div><div class="pz-a3"></div></div></div>' +
+          '<div class="pz-afoot">' + logo + '<span class="pz-aorg"></span></div>' +
+          '<div class="pz-ilegend"></div><div class="pz-north">' + ICON.north + '</div>' +
+        '</div>' +
+        '<div class="pz-right"><div class="pz-ph green">' + ICON.check + 'ข้อควรทราบ</div><ul class="pz-rnotes"></ul><div class="pz-rwarn">' + ICON.warn + '<span>สถานการณ์น้ำและสภาพเส้นทางอาจเปลี่ยนแปลงได้ตลอดเวลา ขอให้ตรวจสอบข้อมูลก่อนออกเดินทาง</span></div></div>' +
+      '</div>' +
+      '<div class="pz-ifoot"><div class="pz-slogan"><div class="pz-slogan1">เดินทางปลอดภัย</div><div class="pz-slogan2"></div></div><div class="pz-hotline">' + ICON.phone + '<div>สายด่วนกรมทางหลวง<br><b></b></div></div></div>' +
+      '</div>';
+    sheet = stage.querySelector('.pz-sheet');
+    map = L.map(q('.pz-map'), { zoomSnap: 0.25, zoomDelta: 0.5, wheelPxPerZoomLevel: 120, maxZoom: 20, zoomControl: true });
+    const opt = { maxZoom: 20, maxNativeZoom: 19, crossOrigin: 'anonymous' };
+    bases = {
+      sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', Object.assign({ attribution: '© Esri' }, opt)),
+      street: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', Object.assign({ attribution: '© Esri' }, opt))
+    };
+    layers = L.layerGroup().addTo(map);
+    deco = L.layerGroup().addTo(map);
+    handles = L.layerGroup().addTo(map);
+    map.setView([12.64, 101.39], 13);
+    map.on('moveend', function () { if (plan) { const c = map.getCenter(); plan.view = { lat: c.lat, lng: c.lng, zoom: map.getZoom() }; changed('view'); } });
+    map.on('zoomend', drawChevrons);
+    map.on('click', function (e) {
+      if (P.onPick) { const f = P.onPick; P.onPick = null; sheet.classList.remove('placing'); f(e.latlng); return; }
+      if (placing) { placeAt(e.latlng); return; }
+      if (selected) select(null);
+    });
+    new ResizeObserver(P.scale).observe(stage);
+    P.scale();
+  };
+  P.scale = function () {
+    if (!stage || !sheet || document.body.classList.contains('printing-poster')) return;
+    const st = STY[plan ? style() : 'doh'];
+    const s = Math.min(stage.clientWidth / st.w, (window.innerHeight - 150) / st.h);
+    sheet.style.transform = 'scale(' + s + ')';
+    stage.style.height = Math.round(st.h * s) + 'px';
+    sheet.style.left = Math.max(0, (stage.clientWidth - st.w * s) / 2) + 'px';
+  };
+  P.map = function () { return map; };
+
+  /* ---------- วาดทั้งหมดจากข้อมูลผัง ---------- */
+  P.setPlan = function (p, cb) {
+    plan = p; onChange = cb; selected = null; placing = null;
+    P.setBase(plan.base);
+    renderStatic(); P.scale(); map.invalidateSize();
+    if (plan.view && plan.view.zoom) map.setView([plan.view.lat, plan.view.lng], plan.view.zoom, { animate: false });
+    P.draw();
+  };
+  P.setBase = function (b) {
+    Object.keys(bases).forEach(function (k) { map.removeLayer(bases[k]); });
+    bases[b === 'street' ? 'street' : 'sat'].addTo(map);
+  };
+  // เปลี่ยนสไตล์: ขนาดแผ่นเปลี่ยน → ซูมพอดีและจัดป้ายใหม่
+  P.restyle = function () {
+    renderStatic(); P.scale(); map.invalidateSize();
+    P.fit(); P.autoLabels();
+  };
+  P.draw = function () {
+    if (!plan) return;
+    renderStatic();
+    layers.clearLayers();
+    plan.pos = plan.pos || {};
+    if (isSafety()) drawSafety(); else drawFlood();
+    drawLabels();
+    drawChevrons();
+    if (selected) drawHandles();
+  };
+  function clickable(line, key) { line.on('click', function (e) { L.DomEvent.stop(e); lineClick(key, e.latlng); }); return line; }
+  function drawFlood() {
+    const fp = linePts('flood'), dp = linePts('detour'), st = style();
+    if (dp.length > 1) {
+      if (st === 'alert') L.polyline(dp.map(LL), { color: '#0b5d16', weight: 24, opacity: .9, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(layers);
+      clickable(L.polyline(dp.map(LL), { color: st === 'alert' ? GREEN : BLUE, weight: st === 'alert' ? 17 : 12, opacity: .97, lineCap: 'round', lineJoin: 'round' }).addTo(layers), 'detour');
+    }
+    if (fp.length > 1) {
+      if (st === 'alert') L.polyline(fp.map(LL), { color: '#6d0000', weight: 24, opacity: .9, interactive: false }).addTo(layers);
+      clickable(L.polyline(fp.map(LL), { color: RED, weight: st === 'alert' ? 17 : 16, opacity: 1, lineCap: st === 'doh' ? 'butt' : 'round' }).addTo(layers), 'flood');
+      if (st !== 'alert') [fp[0], fp[fp.length - 1]].forEach(function (p) {
+        L.circleMarker(LL(p), { radius: 11, color: RED, weight: 5, fillColor: '#fff', fillOpacity: 1, interactive: false }).addTo(layers);
+      });
+    }
+  }
+  // ลูกศรบอกทิศบนเส้น (แบบเตือนภัย / อินโฟกราฟิก)
+  function drawChevrons() {
+    deco.clearLayers();
+    if (!plan || plan.kind === 'safety' || (!isDrain() && style() === 'doh')) return;
+    (isDrain() ? [['drain', DRAIN]] : [['detour', style() === 'alert' ? GREEN : BLUE], ['flood', RED]]).forEach(function (x) {
+      const pts = linePts(x[0]).map(px);
+      if (pts.length < 2) return;
+      const step = 120; let next = 60, cum = 0;
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i], d = a.distanceTo(b);
+        while (d > 0 && next <= cum + d) {
+          const r = (next - cum) / d, ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+          const at = map.containerPointToLatLng(L.point(a.x + (b.x - a.x) * r, a.y + (b.y - a.y) * r));
+          L.marker(at, { interactive: false, keyboard: false, icon: L.divIcon({ className: 'pz-chev', iconSize: [24, 24], iconAnchor: [12, 12],
+            html: '<svg viewBox="0 0 24 24" style="transform:rotate(' + ang.toFixed(0) + 'deg)"><path d="M6 4 L17 12 L6 20" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' }) }).addTo(deco);
+          next += step;
+        }
+        cum += d;
+      }
+    });
+  }
+  function drawSafety() {
+    if (isDrain()) {
+      (plan.waterLines || []).forEach(function (w) {
+        L.polyline(RT.decode(w.line).map(LL), { color: WATER, weight: 7, opacity: .9, interactive: false }).addTo(layers);
+      });
+      const dp = linePts('drain');
+      if (dp.length > 1) {
+        L.polyline(dp.map(LL), { color: '#01579b', weight: 20, opacity: .85, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(layers);
+        clickable(L.polyline(dp.map(LL), { color: DRAIN, weight: 14, opacity: 1, lineCap: 'round', lineJoin: 'round' }).addTo(layers), 'drain');
+      }
+      if (has(plan.drain.a)) L.marker(LL(plan.drain.a), { interactive: false, zIndexOffset: 800, icon: L.divIcon({ className: 'pz-dev', iconSize: [44, 57], iconAnchor: [22, 55], html: ICON.drop }) }).addTo(layers);
+      if (has(plan.drain.b)) L.marker(LL(plan.drain.b), { interactive: false, zIndexOffset: 800, icon: L.divIcon({ className: 'pz-dev', iconSize: [48, 48], iconAnchor: [24, 24], html: ICON.outlet }) }).addTo(layers);
+    }
+    const zp = linePts('zone');
+    if (zp.length > 1) {
+      clickable(L.polyline(zp.map(LL), { color: ORANGE, weight: 20, opacity: .85, lineCap: 'butt' }).addTo(layers), 'zone');
+      L.polyline(zp.map(LL), { color: '#fff', weight: 3, dashArray: '10 12', interactive: false }).addTo(layers);
+    }
+    (plan.devices || []).forEach(function (d, i) {
+      if (!DEV[d.t] || !has(d)) return;
+      const sz = DEV[d.t].size, withText = d.text && d.t !== 'speed' && d.t !== 'arrow';
+      const m = L.marker(LL(d), { draggable: true, keyboard: false, zIndexOffset: d.t === 'cone' ? 0 : 500,
+        icon: L.divIcon({ className: 'pz-dev', iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2],
+          html: devSvg(d) + (withText ? '<div class="pz-devt">' + esc(d.text) + '</div>' : '') }) });
+      m.on('dragend', function () { const l = m.getLatLng(); d.lat = +l.lat.toFixed(6); d.lng = +l.lng.toFixed(6); changed('devices'); });
+      m.on('dblclick', function (e) {
+        L.DomEvent.stop(e);
+        if (['cone', 'barrier', 'light', 'flag'].indexOf(d.t) >= 0) return;
+        const s = prompt(d.t === 'speed' ? 'ความเร็วที่จำกัด (กม./ชม.)' : 'ข้อความบนป้าย', d.text || '');
+        if (s !== null) { d.text = s.trim(); P.draw(); changed('devices'); }
+      });
+      m.on('contextmenu', function (e) {
+        L.DomEvent.stop(e);
+        if (confirm('ลบ "' + DEV[d.t].name + '" ชิ้นนี้ออกจากผัง?')) { plan.devices.splice(i, 1); P.draw(); changed('devices'); }
+      });
+      m.addTo(layers);
+    });
+  }
+
+  /* ---------- ป้าย ---------- */
+  function labelMarker(key, ll, html, anchorLL, leaderStyle) {
+    const m = L.marker(ll, { draggable: true, keyboard: false, zIndexOffset: 1000,
+      icon: L.divIcon({ className: 'pz-lbl', iconSize: [0, 0], html: html }) });
+    let leader = null;
+    if (anchorLL) leader = L.polyline([anchorLL, ll], Object.assign({ color: RED, weight: 2.5, interactive: false }, leaderStyle || {})).addTo(layers);
+    m.on('drag', function () { if (leader) leader.setLatLngs([anchorLL, m.getLatLng()]); });
+    m.on('dragend', function () { const l = m.getLatLng(); plan.pos[key] = Object.assign({}, plan.pos[key] || {}, { lat: l.lat, lng: l.lng }); changed('pos'); });
+    m.addTo(layers);
+    return m;
+  }
+  function arrowHtml(text, left, ang) {
+    return '<div class="pz-dirwrap" style="transform:translate(-50%,-50%) rotate(' + (+ang || 0).toFixed(1) + 'deg)">' +
+      '<div class="pz-dirtext">' + esc(text) + '</div>' +
+      '<svg class="pz-arrow" viewBox="0 0 220 56" width="220" height="56" style="' + (left ? 'transform:scaleX(-1)' : '') + '">' +
+      '<path d="M6 28 H170" stroke="#ff1a1a" stroke-width="13" stroke-linecap="round"/><path d="M160 4 L216 28 L160 52 Z" fill="#ff1a1a"/></svg>' +
+      '<div class="pz-rot"><span data-d="-8" title="หมุนทวนเข็ม">⟲</span><span data-d="8" title="หมุนตามเข็ม">⟳</span></div></div>';
+  }
+  function mid(pts) { return pts[Math.floor(pts.length / 2)]; }
+  function drawLabels() {
+    const pos = plan.pos, key = mainKey(), r = routeOf(key), mp = linePts(key), st = style(), dp = isSafety() ? [] : linePts('detour');
+    if (isDrain()) {
+      if (pos.srcL && has(r.a)) labelMarker('srcL', LL(pos.srcL), '<div class="pz-call red small"><div>จุดน้ำท่วมขัง<small>' + esc(r.a.name || plan.place || '') + (r.a.km ? ' กม.' + esc(r.a.km) : '') + '</small></div></div>', LL(r.a), { color: '#fff', weight: 4 });
+      if (pos.outL && has(r.b)) labelMarker('outL', LL(pos.outL), '<div class="pz-call blue small"><div>ระบายน้ำลง<small>' + esc(r.b.name || '') + '</small></div></div>', LL(r.b), { color: '#fff', weight: 4 });
+      return;
+    }
+    if (st === 'alert') {
+      if (pos.cG && dp.length > 1) labelMarker('cG', LL(pos.cG), '<div class="pz-call green">' + ICON.go + '<div>' + esc(plan.callGo || 'เส้นทางหลีกเลี่ยงน้ำท่วม') + '<br><em>(ใช้เส้นทางนี้)</em></div></div>', LL(mid(dp)), { color: '#fff', weight: 5 });
+      if (pos.cR && mp.length > 1) labelMarker('cR', LL(pos.cR), '<div class="pz-call red">' + ICON.no + '<div>เส้นทางปกติ <em>(ควรเลี่ยง)</em><small>' + esc(plan.callNo || ('บริเวณ' + (plan.place || '') + ' น้ำท่วม')) + '</small></div></div>', LL(mid(mp)), { color: '#fff', weight: 5 });
+      return;
+    }
+    if (st === 'info') {
+      if (pos.place && mp.length > 1) labelMarker('place', LL(pos.place), '<div class="pz-ired">' + ICON.cone + '<div>' + esc(plan.place || 'บริเวณน้ำท่วม') + '<br><small>(น้ำท่วมทาง)</small></div></div>', LL(mid(mp)), { color: RED, weight: 3 });
+      [['detA', plan.detour.a], ['detB', plan.detour.b]].forEach(function (x) {
+        if (!pos[x[0]] || !x[1].name) return;
+        labelMarker(x[0], LL(pos[x[0]]), '<div class="pz-ipill">' + esc(x[1].name) + (x[1].km ? ' <small>กม.' + esc(x[1].km) + '</small>' : '') + '</div>', has(x[1]) ? LL(x[1]) : null, { color: '#fff', weight: 3 });
+      });
+      return;
+    }
+    if (mp.length > 1) {
+      if (pos.place && plan.place) labelMarker('place', LL(pos.place), '<div class="pz-box">' + esc(plan.place) + '</div>');
+      if (pos.kmA && r.a.km) labelMarker('kmA', LL(pos.kmA), '<div class="pz-km">กม.' + esc(r.a.km) + '</div>', LL(mp[0]));
+      if (pos.kmB && r.b.km) labelMarker('kmB', LL(pos.kmB), '<div class="pz-km">กม.' + esc(r.b.km) + '</div>', LL(mp[mp.length - 1]));
+    }
+    if (isSafety()) return;
+    if (dp.length > 1) {
+      [['detA', plan.detour.a], ['detB', plan.detour.b]].forEach(function (x) {
+        const d = x[1];
+        if (!pos[x[0]] || !(d.name || d.km)) return;
+        const txt = [d.name, d.km ? 'กม.' + d.km : ''].filter(Boolean).join(' ');
+        labelMarker(x[0], LL(pos[x[0]]), '<div class="pz-stack"><div class="pz-box">ทางเบี่ยง</div><div class="pz-box">' + esc(txt) + '</div></div>');
+      });
+    }
+    [['arrL', plan.dirLeft, true], ['arrR', plan.dirRight, false]].forEach(function (x) {
+      const p = pos[x[0]];
+      if (!p || !x[1]) return;
+      const m = labelMarker(x[0], LL(p), arrowHtml(x[1], x[2], p.ang));
+      m.on('click', function (e) {
+        const d = e.originalEvent && e.originalEvent.target && e.originalEvent.target.dataset && e.originalEvent.target.dataset.d;
+        if (!d) return;
+        p.ang = (+p.ang || 0) + (+d);
+        m.setIcon(L.divIcon({ className: 'pz-lbl', iconSize: [0, 0], html: arrowHtml(x[1], x[2], p.ang) }));
+        changed('pos');
+      });
+    });
+  }
+
+  // จัดตำแหน่งป้ายอัตโนมัติจากตำแหน่งเส้นบนจอขณะนี้
+  P.autoLabels = function () {
+    const pos = plan.pos = {}, st = style();
+    const mp = linePts(mainKey()), dp = isSafety() ? [] : linePts('detour');
+    const size = map.getSize();
+    if (isDrain()) {
+      const r = plan.drain;
+      if (has(r.a)) { const a = px(r.a); pos.srcL = geo(clampPt(L.point(a.x + (a.x < size.x / 2 ? -200 : 200), a.y - 120), 200, 70)); }
+      if (has(r.b)) { const b = px(r.b); pos.outL = geo(clampPt(L.point(b.x + (b.x < size.x / 2 ? -200 : 200), b.y + 110), 200, 70)); }
+      P.draw(); changed('pos'); return;
+    }
+    if (st === 'alert') {
+      // กล่องเขียวไปทางฝั่งทางเบี่ยง กล่องแดงไปฝั่งตรงข้าม (ไม่ทับกัน)
+      const g = dp.length > 1 ? px(mid(dp)) : null, f = mp.length > 1 ? px(mid(mp)) : null;
+      let ux = 0, uy = 1;
+      if (g && f) { const dx = g.x - f.x, dy = g.y - f.y, L0 = Math.hypot(dx, dy); if (L0 > 20) { ux = dx / L0; uy = dy / L0; } }
+      if (g) pos.cG = geo(clampPt(L.point(g.x + ux * 200, g.y + uy * 200), 260, 330));
+      if (f) pos.cR = geo(clampPt(L.point(f.x - ux * 220, f.y - uy * 220), 260, 330));
+      if (pos.cG && pos.cR) {   // ยังชิดกันเกินไป → ดันแยกแนวตั้ง
+        const a = px(pos.cG), b = px(pos.cR);
+        if (Math.abs(a.y - b.y) < 170 && Math.abs(a.x - b.x) < 560) {
+          const up = a.y <= b.y ? -1 : 1;
+          pos.cG = geo(clampPt(L.point(a.x, a.y + up * 100), 260, 330));
+          pos.cR = geo(clampPt(L.point(b.x, b.y - up * 100), 260, 330));
+        }
+      }
+      P.draw(); changed('pos'); return;
+    }
+    if (st === 'info') {
+      if (mp.length > 1) { const f = px(mid(mp)); pos.place = geo(clampPt(L.point(f.x, f.y + 120), 200, 120)); }
+      if (dp.length > 1) {
+        const A = px(dp[0]), B = px(dp[dp.length - 1]);
+        pos.detA = geo(clampPt(L.point(A.x, A.y - 70), 170, 130));
+        pos.detB = geo(clampPt(L.point(B.x, B.y - 70), 170, 130));
+      }
+      P.draw(); changed('pos'); return;
+    }
+    if (mp.length > 1) {
+      const a = px(mp[0]), b = px(mp[mp.length - 1]), m = px(mid(mp));
+      pos.place = geo(clampPt(L.point(m.x, Math.min(a.y, b.y, m.y) - 80), 220, 60));
+      let ax = a.x, bx = b.x;
+      const gap = 330;
+      if (Math.abs(ax - bx) < gap) { const c = (ax + bx) / 2, s = ax <= bx ? -1 : 1; ax = c + s * gap / 2; bx = c - s * gap / 2; }
+      pos.kmA = geo(clampPt(L.point(ax, a.y + 140), 170, 50));
+      pos.kmB = geo(clampPt(L.point(bx, b.y + 140), 170, 50));
+    }
+    if (dp.length > 1) {
+      const A = px(dp[0]), B = px(dp[dp.length - 1]);
+      pos.detA = geo(clampPt(L.point(A.x, A.y - 105), 240, 70));
+      pos.detB = geo(clampPt(L.point(B.x, B.y - 105), 240, 70));
+      const Lp = A.x <= B.x ? A : B, Rp = A.x <= B.x ? B : A;
+      const th = Math.atan2(Rp.y - Lp.y, Rp.x - Lp.x), deg = th * 180 / Math.PI;
+      pos.arrL = Object.assign(geo(clampPt(L.point(Lp.x - Math.cos(th) * 330, Lp.y - Math.sin(th) * 330 - 170), 150, 90)), { ang: deg });
+      pos.arrR = Object.assign(geo(clampPt(L.point(Rp.x + Math.cos(th) * 330, Rp.y + Math.sin(th) * 330 - 170), 150, 90)), { ang: deg });
+    }
+    P.draw();
+    changed('pos');
+  };
+
+  // ซูมให้เห็นทุกอย่าง (เว้นที่ให้หัวผัง ป้าย และกล่องคำอธิบาย)
+  P.fit = function () {
+    let all = linePts(mainKey());
+    if (isSafety()) all = all.concat((plan.devices || []).filter(has));
+    else all = all.concat(linePts('detour'));
+    if (!all.length) return;
+    const st = style();
+    // ผังความปลอดภัย/ระบายน้ำ: ดันเนื้อหาขึ้นครึ่งบน เว้นมุมขวาล่างให้กล่องคำอธิบาย (รายการยาว)
+    const pad = st === 'alert' ? [[150, 360], [150, 170]] : st === 'info' ? [[140, 130], [140, 110]] : isSafety() ? [[170, 150], [170, 400]] : [[260, 190], [260, 170]];
+    map.fitBounds(L.latLngBounds(all.map(LL)), { paddingTopLeft: pad[0], paddingBottomRight: pad[1], animate: false, maxZoom: 19 });
+  };
+
+  /* ---------- วางอุปกรณ์เพิ่มเอง ---------- */
+  P.startPlacing = function (t) { placing = t; sheet.classList.toggle('placing', !!t); };
+  P.pick = function (cb) { P.onPick = cb; placing = null; sheet.classList.add('placing'); };
+  function placeAt(ll) {
+    const t = placing;
+    const d = { t: t, lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) };
+    if (t === 'sign') d.text = prompt('ข้อความบนป้าย', 'งานข้างหน้า') || '';
+    if (t === 'speed') d.text = prompt('ความเร็วที่จำกัด (กม./ชม.)', '60') || '60';
+    if (t === 'arrow') d.text = confirm('ลูกศรชี้ขวา (ให้ชิดขวา)?\nกด "ยกเลิก" = ชี้ซ้าย') ? 'ชิดขวา' : 'ชิดซ้าย';
+    if (t === 'end') d.text = 'สิ้นสุดเขต' + (plan.workType || 'งาน');
+    plan.devices = plan.devices || [];
+    plan.devices.push(d);
+    if (t !== 'cone') P.startPlacing(null);
+    P.draw();
+    changed('devices');
+    if (P.onPlaced) P.onPlaced(placing);
+  }
+
+  /* ---------- ปรับเส้นด้วยการลากจุด ---------- */
+  function ctrlPts(key) { const r = routeOf(key); return [r.a].concat(r.via || [], [r.b]); }
+  function select(key) {
+    selected = key;
+    handles.clearLayers();
+    if (key) drawHandles();
+    if (P.onSelect) P.onSelect(key);
+  }
+  P.select = select;
+  function drawHandles() {
+    handles.clearLayers();
+    const key = selected, r = routeOf(key), pts = ctrlPts(key);
+    const color = key === 'flood' ? RED : key === 'zone' ? ORANGE : (style() === 'alert' ? '#1d8f2e' : BLUE);
+    pts.forEach(function (p, i) {
+      if (!has(p)) return;
+      const end = i === 0 || i === pts.length - 1;
+      const m = L.marker(LL(p), { draggable: true, keyboard: false, zIndexOffset: 3000,
+        icon: L.divIcon({ className: 'pz-h' + (end ? ' end' : ''), iconSize: [30, 30], iconAnchor: [15, 15], html: '<div style="--c:' + color + '"></div>' }) });
+      m.on('dragend', function () {
+        const l = m.getLatLng(), v = { lat: +l.lat.toFixed(6), lng: +l.lng.toFixed(6) };
+        if (i === 0) Object.assign(r.a, v); else if (i === pts.length - 1) Object.assign(r.b, v); else r.via[i - 1] = v;
+        rebuild(key, end);
+      });
+      m.on('dblclick', function (e) {
+        L.DomEvent.stop(e);
+        if (end) return;
+        r.via.splice(i - 1, 1);
+        rebuild(key);
+      });
+      m.addTo(handles);
+    });
+  }
+  function lineClick(key, ll) {
+    if (placing) { placeAt(ll); return; }
+    if (selected !== key) { select(key); return; }
+    // แทรกจุดใหม่ให้อยู่ลำดับที่ถูกต้องตามแนวเส้น
+    const line = linePts(key).map(px);
+    const near = function (pt) {
+      let best = 0, bd = Infinity;
+      for (let j = 1; j < line.length; j++) { const d = L.LineUtil.pointToSegmentDistance(pt, line[j - 1], line[j]); if (d < bd) { bd = d; best = j; } }
+      return best;
+    };
+    const c = near(map.latLngToContainerPoint(ll));
+    const r = routeOf(key), via = r.via = r.via || [];
+    let k = via.length, prev = 0;
+    for (let i = 0; i < via.length; i++) { let s = near(px(via[i])); if (s < prev) s = prev; prev = s; if (s >= c) { k = i; break; } }
+    via.splice(k, 0, { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) });
+    drawHandles();
+    changed('route');
+  }
+  async function rebuild(key, endMoved) {
+    if (key === 'drain') {   // แนวระบายน้ำไม่วิ่งตามถนน: ลากเป็นเส้นตรงผ่านจุดควบคุม
+      const pts = ctrlPts(key).filter(has);
+      plan.drainLine = RT.encode(pts); plan.drainLen = RT.length(pts);
+      P.draw(); changed(endMoved ? 'coords' : 'route');
+      return;
+    }
+    if (P.onBusy) P.onBusy('กำลังคำนวณเส้นทางตามถนน...');
+    try {
+      const res = await RT.route(ctrlPts(key));
+      plan[lineField(key)] = RT.encode(res.pts);
+      plan[key + 'Len'] = res.distance;
+      if (P.onBusy) P.onBusy('');
+    } catch (e) { if (P.onBusy) P.onBusy('ลากตามถนนไม่สำเร็จ: ' + e.message, true); }
+    P.draw();
+    changed(endMoved ? 'coords' : 'route');
+  }
+
+  /* ---------- ส่งออก ---------- */
+  function filter(n) {
+    return !(n.classList && (n.classList.contains('leaflet-control-zoom') || n.classList.contains('pz-rot') || n.classList.contains('pz-h')));
+  }
+  P.exportPng = async function (name) {
+    select(null);
+    if (!window.htmlToImage) throw new Error('โหลดตัวสร้างรูปไม่ได้ (ต้องต่ออินเทอร์เน็ต)');
+    const st = STY[style()];
+    const url = await htmlToImage.toPng(sheet, { width: st.w, height: st.h, pixelRatio: 1, style: { transform: 'none', left: '0' }, filter: filter });
+    const a = document.createElement('a');
+    a.href = url; a.download = name + '.png'; a.click();
+  };
+  P.print = function () {
+    select(null);
+    const st = STY[style()], portrait = st.h > st.w;
+    // ย่อให้พอดีหน้า A4 (96 dpi: 297×210 มม. ≈ 1122×793 px ลบขอบ)
+    const pw = portrait ? 756 : 1085, ph = portrait ? 1085 : 756;
+    const s = Math.min(pw / st.w, ph / st.h);
+    document.getElementById('pageStyle').textContent = '@page{size:A4 ' + (portrait ? 'portrait' : 'landscape') + ';margin:5mm}';
+    document.body.classList.add('printing-poster');
+    sheet.style.transform = 'scale(' + s + ')'; sheet.style.left = '0';
+    const done = function () { document.body.classList.remove('printing-poster'); window.removeEventListener('afterprint', done); P.scale(); };
+    window.addEventListener('afterprint', done);
+    setTimeout(function () { window.print(); }, 200);
+  };
+})();
