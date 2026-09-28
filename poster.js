@@ -66,6 +66,7 @@
   const P = window.Poster = { DEV: DEV, devSvg: devSvg, STY: STY, ICON: ICON, DEV_SAFETY: DEV_SAFETY, DEV_DRAIN: DEV_DRAIN, DEV_FLOOD: DEV_FLOOD };
   const DRAIN = '#00b0ff', WATER = '#4fc3f7', PURPLE = '#9c27b0';   // PURPLE = ทางเบี่ยงที่ 2
   let map, sheet, stage, plan, onChange, layers, deco, handles, selected = null, bases, placing = null, sideBar = null, sidePick = false;
+  let lineOf = {}, bent = false;   // เส้นของแต่ละ key · เพิ่งกดลากเส้นเสร็จ (กันคลิกซ้อน)
   let refBack, refPts, refKey = '';
 
   /* ---------- ตัวช่วย ---------- */
@@ -359,6 +360,7 @@
     sideBar = new SideCtl().addTo(map).getContainer();
     renderSide();
     map.on('click', function (e) {
+      if (bent) return;
       if (sidePick) { sideAt(e.latlng); return; }
       if (P.onPick) { const f = P.onPick; P.onPick = null; sheet.classList.remove('placing'); drawRef(); f(e.latlng); return; }
       if (placing) { placeAt(e.latlng); return; }
@@ -399,15 +401,20 @@
     if (!plan) return;
     renderStatic();
     drawRef();
-    layers.clearLayers();
+    layers.clearLayers(); lineOf = {};
     plan.pos = plan.pos || {};
     lblReg = [];
     if (isSafety()) drawSafety(); else drawFlood();
     drawLabels();
     drawChevrons();
-    if (selected) drawHandles();
+    if (selected) { if (lineOf[selected]) lineOf[selected].bringToFront(); drawHandles(); }   // เส้นที่เลือกขึ้นบนสุด (ทางเบี่ยงที่ทับเส้นน้ำท่วมก็กดลากได้)
   };
-  function clickable(line, key) { line.on('click', function (e) { L.DomEvent.stop(e); lineClick(key, e.latlng); }); return line; }
+  function clickable(line, key) {
+    line.on('click', function (e) { L.DomEvent.stop(e); if (bent) return; lineClick(key, e.latlng); });
+    line.on('mousedown', function (e) { bend(key, e); });
+    lineOf[key] = line;
+    return line;
+  }
   function drawFlood() {
     const fp = linePts('flood'), dp = linePts('detour'), st = style();
     if (dp.length > 1) {
@@ -994,20 +1001,56 @@
     if (sidePick) { sideAt(ll); return; }
     if (placing) { placeAt(ll); return; }
     if (selected !== key) { select(key); return; }
-    // แทรกจุดใหม่ให้อยู่ลำดับที่ถูกต้องตามแนวเส้น
+    addVia(key, ll, ll);
+    drawHandles();
+    changed('route');
+  }
+  // แทรกจุดใหม่ (to) ให้อยู่ลำดับที่ถูกต้องตามแนวเส้น ณ ตำแหน่งที่กดบนเส้น (at)
+  function addVia(key, at, to) {
     const line = linePts(key).map(px);
     const near = function (pt) {
       let best = 0, bd = Infinity;
       for (let j = 1; j < line.length; j++) { const d = L.LineUtil.pointToSegmentDistance(pt, line[j - 1], line[j]); if (d < bd) { bd = d; best = j; } }
       return best;
     };
-    const c = near(map.latLngToContainerPoint(ll));
+    const c = near(map.latLngToContainerPoint(at));
     const r = routeOf(key), via = r.via = r.via || [];
     let k = via.length, prev = 0;
     for (let i = 0; i < via.length; i++) { let s = near(px(via[i])); if (s < prev) s = prev; prev = s; if (s >= c) { k = i; break; } }
-    via.splice(k, 0, { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) });
-    drawHandles();
-    changed('route');
+    via.splice(k, 0, { lat: +to.lat.toFixed(6), lng: +to.lng.toFixed(6) });
+  }
+  /* กดค้างบนเส้นแล้วลากไปวางบนถนนที่ต้องการ (แบบ Google Maps) → เพิ่มจุดบังคับ แล้วเส้นวิ่งตามถนนใหม่ */
+  function bend(key, e) {
+    const ev = e.originalEvent;
+    if (ev.button || placing || sidePick || P.onPick || key === 'drain') return;
+    L.DomEvent.preventDefault(ev);
+    const at = e.latlng, p0 = e.containerPoint;
+    let to = null, ghost = null;
+    map.dragging.disable();
+    const move = function (m) {
+      if (!to && m.containerPoint.distanceTo(p0) < 8) return;   // ขยับนิดเดียว = คลิกธรรมดา
+      to = m.latlng;
+      if (!ghost) {
+        const color = key === 'detour2' ? PURPLE : key === 'zone' ? ORANGE : key === 'flood' || isExtra(key) ? RED : (style() === 'alert' ? '#1d8f2e' : BLUE);
+        ghost = L.marker(to, { interactive: false, zIndexOffset: 3000,
+          icon: L.divIcon({ className: 'pz-h', iconSize: [30, 30], iconAnchor: [15, 15], html: '<div style="--c:' + color + '"></div>' }) }).addTo(handles);
+        map.getContainer().style.cursor = 'grabbing';
+      }
+      ghost.setLatLng(to);
+    };
+    const up = function () {
+      map.off('mousemove', move);
+      document.removeEventListener('mouseup', up, true);
+      map.dragging.enable();
+      map.getContainer().style.cursor = '';
+      if (!to) return;
+      bent = true; setTimeout(function () { bent = false; }, 0);   // กันคลิกที่ตามมาหลังปล่อยเมาส์
+      if (selected !== key) { selected = key; renderSide(); if (P.onSelect) P.onSelect(key); }
+      addVia(key, at, to);
+      rebuild(key);
+    };
+    map.on('mousemove', move);
+    document.addEventListener('mouseup', up, true);
   }
   async function rebuild(key, endMoved) {
     if (key === 'drain') {   // แนวระบายน้ำไม่วิ่งตามถนน: ลากเป็นเส้นตรงผ่านจุดควบคุม
