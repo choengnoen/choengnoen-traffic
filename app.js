@@ -561,8 +561,13 @@
     });
     showFiles();
     $('aiRun').onclick = async function () {
-      if (!AI.ready()) { toast('ยังไม่ได้ใส่ API key — ไปที่แท็บ "ตั้งค่า" หรือใช้ "อ่านเอง"', true); return; }
       const text = $('aiText').value.trim();
+      if (!AI.ready()) {   // ไม่มี key → อ่านเองแทน (อ่านได้เฉพาะข้อความ)
+        if (!text) { toast('ยังไม่ได้ใส่ API key — การอ่านรูปต้องใส่ key ที่แท็บ "ตั้งค่า" ก่อน', true); return; }
+        applyParsed(AI.parseLocal(text, knownList()), false);
+        toast('ยังไม่ได้ใส่ API key จึงใช้ "อ่านเอง" แทน (อ่านรูปไม่ได้)');
+        return;
+      }
       if (!text && !S.files.length) { toast('วางข้อความหรือแนบรูปก่อน', true); return; }
       const done = busy(this, 'AI กำลังอ่าน...');
       try { const r = await AI.parse(text, S.files, KIND[S.cur.kind].name, knownList()); applyParsed(r, true); }
