@@ -392,10 +392,25 @@
     status('อ่านเส้นทางจากลิงก์ได้ ' + pts.length + ' จุด — กด ⚡ สร้างผังอัตโนมัติ เพื่อลากเส้นตามถนน');
   }
   // ทางเบี่ยงตามจุดที่ร่างไว้ในลิงก์ (ลากตามถนนผ่านทุกจุด) + เตือนถ้าผ่านจุดน้ำท่วม
+  // ลิงก์เก็บแค่จุด ไม่เก็บเส้นที่ Google วาด → ช่วงไหนที่ OSRM พาเข้าช่วงน้ำท่วม ให้หาทางอ้อมเฉพาะช่วงนั้น
   async function fixedDetour(r, segs) {
-    const res = await RT.route([r.a].concat(r.via || [], [r.b]), r.side);
-    const hit = segs.some(function (s) { return RT.overlap(s.length > 1 ? s : [s[0], s[0]], res.pts) >= 0.08; });
-    return { pts: res.pts, distance: res.distance, via: r.via || [], warn: hit ? 'เส้นทางตามลิงก์ผ่านช่วงน้ำท่วม — ตรวจสอบลิงก์อีกครั้ง' : '' };
+    const hits = function (pts) { return segs.some(function (s) { return RT.overlap(s.length > 1 ? s : [s[0], s[0]], pts) >= 0.08; }); };
+    const all = [r.a].concat(r.via || [], [r.b]);
+    const res = await RT.route(all, r.side);
+    if (!hits(res.pts)) return { pts: res.pts, distance: res.distance, via: r.via || [], warn: '' };
+    let pts = [], bad = false;
+    for (let i = 1; i < all.length; i++) {
+      status('เส้นตามลิงก์ผ่านน้ำท่วม — กำลังหาทางอ้อมทีละช่วง (' + i + '/' + (all.length - 1) + ')...');
+      let leg = (await RT.route([all[i - 1], all[i]], r.side)).pts;
+      if (hits(leg)) {
+        const alt = await RT.autoDetour(all[i - 1], all[i], segs, status);
+        if (!alt.warn) leg = alt.pts; else bad = true;
+      }
+      pts = pts.concat(pts.length ? leg.slice(1) : leg);
+    }
+    pts = RT.removeSpurs(pts);
+    return { pts: pts, distance: RT.length(pts), via: r.via || [],
+      warn: bad ? 'เส้นทางตามลิงก์ผ่านช่วงน้ำท่วม — เพิ่มจุดแวะใน Google Maps บนถนนที่ต้องการให้ผ่าน แล้ววางลิงก์ใหม่' : '' };
   }
   // ช่องพิกัดแบบย่อ (ใช้ในการ์ดจุดน้ำท่วม)
   function llField(path, label) {
