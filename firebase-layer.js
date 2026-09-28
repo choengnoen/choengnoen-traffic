@@ -176,6 +176,20 @@
       batch.set(db.collection('activity_log').doc(), logEntry('permanentDelete', COL + '/' + p.id, p.title));
       try { await batch.commit(); } catch (e) { throw new Error(thErr(e)); }
     };
+
+    // ตราแบบใหม่ที่อัปโหลดผ่านเว็บ (เก็บเป็นรูป data URL ใน traffic_settings/logo — ไม่ต้องใช้ Storage)
+    FBL.loadLogo = async function () {
+      const d = await db.collection('traffic_settings').doc('logo').get();
+      return d.exists && d.data().data ? d.data() : null;
+    };
+    FBL.saveLogo = async function (dataUrl) {
+      requirePrivileged();
+      const batch = db.batch(), ref = db.collection('traffic_settings').doc('logo');
+      if (dataUrl) batch.set(ref, stamp({ data: dataUrl }, true));
+      else batch.delete(ref);
+      batch.set(db.collection('activity_log').doc(), logEntry(dataUrl ? 'update' : 'permanentDelete', 'traffic_settings/logo', dataUrl ? 'อัปโหลดตราแบบใหม่' : 'ลบตราแบบใหม่'));
+      try { await batch.commit(); } catch (e) { throw new Error(thErr(e)); }
+    };
   }
 
   /* ======================================================================
@@ -243,6 +257,8 @@
       if (r) { r.deletedAt = restore ? null : nowIso(); r.deletedBy = restore ? '' : (FBL.user ? FBL.user.name : ''); persist(); emit(); }
     };
     FBL.hardDeletePlan = async function (p) { requirePrivileged(); delete S.plans[p.id]; persist(); emit(); };
+    FBL.loadLogo = async function () { return S.logo || null; };
+    FBL.saveLogo = async function (dataUrl) { requirePrivileged(); S.logo = dataUrl ? stamp({ data: dataUrl }, true) : null; persist(); };
     FBL.resetDemo = function () { localStorage.removeItem(KEY); try { sessionStorage.removeItem('fdp_demo_uid'); } catch (e) { /* ข้าม */ } };
   }
 })();

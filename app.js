@@ -76,6 +76,8 @@
       const k = normName(q.name);
       if (k && (!m[k] || m[k].t <= t)) m[k] = { name: String(q.name).trim(), km: q.km || '', lat: q.lat, lng: q.lng, t: t };
     };
+    // จุดแยก/U-Turn จากไฟล์ Google Earth ของแขวงฯ (refdata.js) — ลำดับต่ำสุด ชื่อซ้ำใช้ที่ทีมลงไว้
+    (P.refPts || []).forEach(function (r) { put(r, ''); });
     const lm = memoLocal();
     Object.keys(lm).forEach(function (k) { put(lm[k], lm[k].t || ''); });
     (Array.isArray(S.plans) ? S.plans : []).forEach(function (p) {
@@ -210,6 +212,8 @@
     $('tabs').querySelectorAll('.tab-btn').forEach(function (b) { b.onclick = function () { go(b.dataset.view); }; });
     window.addEventListener('beforeunload', function (e) { if (S.dirty) { e.preventDefault(); e.returnValue = ''; } });
     S.plans = await FBL.watchPlans(function (docs) { S.plans = docs; if (S.view === 'list') renderList(); });
+    // ยังไม่ได้วางกฎ traffic_settings ก็ข้ามไป (ใช้ตราแบบเดิม/ไฟล์ logo-new.png ตามเดิม)
+    FBL.loadLogo().then(function (d) { if (d) setLogoDb(d); }, function () { /* ข้าม */ });
     hideLoading();
     buildEditor();
     go('list');
@@ -322,7 +326,7 @@
     };
     $('edFit').onclick = function () { if (S.cur) P.fit(); };
     $('edLabels').onclick = function () { if (S.cur) P.autoLabels(); };
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && S.cur) { P.startPlacing(null); P.onPick = null; P.select(null); renderPalette(); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && S.cur) { P.startPlacing(null); P.onPick = null; P.drawRef(); P.select(null); renderPalette(); } });
   }
   function status(msg, err) { const el = $('edStatus'); if (!el) return; el.textContent = msg || ''; el.classList.toggle('err', !!err); }
   function markDirty() { S.dirty = true; }
@@ -330,6 +334,7 @@
     if (what !== 'view') markDirty();
     if (what === 'coords') refreshPtInputs();
     if (what === 'devices' || what === 'route') refreshLens();
+    if (what === 'ref') renderRefList();
   }
   function openPlan(p) {
     if (S.dirty && !confirm('ผังเดิมยังไม่ได้บันทึก เปิดผังอื่นเลยหรือไม่?')) return;
@@ -461,10 +466,21 @@
         fld('สีลูกศร', 'arrowColor', { type: 'select', options: Object.keys(P.ARROW_COLORS).map(function (x) { return { k: x, n: P.ARROW_COLORS[x] }; }) }) +
         '<div class="span-all arrow-prev" id="arrPrev"></div>' : '') + '</div>' +
       '<p class="hint">กล่อง "ขออภัยในความไม่สะดวก" และ "คำอธิบายสัญลักษณ์" ลากย้ายบนผังได้ · ดับเบิลคลิกที่กล่องเพื่อคืนตำแหน่งเดิม</p></div>';
+    // ข้อมูลอ้างอิงจากไฟล์ Google Earth ของแขวงฯ
+    p.ref = Object.assign({ pts: 'none', sel: [], lbl: true, routes: false, tambon: false, tambonLbl: true }, p.ref);
+    h += '<div class="card"><div class="section-title">🗺️ ข้อมูลอ้างอิงบนแผนที่ <span class="sub">จากไฟล์ Google Earth ของแขวงฯ</span></div><div class="grid grid-2">' +
+      fld('จุดแยก / จุดกลับรถ (U-Turn) ทล.3, ทล.36', 'ref.pts', { type: 'select', cls: 'span-all', options: [{ k: 'none', n: 'ไม่แสดง' }, { k: 'all', n: 'แสดงทุกจุด (' + P.refPts.length + ' จุด)' }, { k: 'sel', n: 'แสดงเฉพาะจุดที่เลือก' }] }) +
+      fld('แสดงชื่อจุดและ กม.', 'ref.lbl', { type: 'checkbox', cls: 'span-all' }) +
+      fld('เส้นสายทางควบคุมแขวงฯ', 'ref.routes', { type: 'checkbox' }) +
+      fld('ขอบเขตตำบล จ.ระยอง', 'ref.tambon', { type: 'checkbox' }) +
+      fld('แสดงชื่อตำบล', 'ref.tambonLbl', { type: 'checkbox' }) + '</div>' +
+      '<div id="refList"></div>' +
+      '<p class="hint">ปุ่ม 📍 ของแต่ละจุด: คลิกจุดสีเขียวบนแผนที่เพื่อใช้พิกัด ชื่อ และ กม. ของจุดนั้นได้ทันที · พิมพ์ชื่อจุด เช่น "สี่แยกตะพง" ระบบเติมพิกัดให้เอง</p></div>';
     // รายชื่อจุดที่เคยลงพิกัด (ให้เลือกตอนพิมพ์ชื่อจุด)
     h += '<datalist id="tpPlaces">' + knownList().map(function (q) { return '<option value="' + esc(q.name) + '">' + esc((q.km ? 'กม.' + q.km + ' · ' : '') + q.lat + ', ' + q.lng) + '</option>'; }).join('') + '</datalist>';
     el.innerHTML = h;
     bindForm(el);
+    renderRefList();
     refreshArrPrev();
     renderPalette();
     refreshLens();
@@ -488,6 +504,7 @@
         setP(S.cur, path, v);
         markDirty();
         if (path === 'base') { P.setBase(v); P.draw(); return; }
+        if (path.indexOf('ref.') === 0) { P.drawRef(); renderRefList(); return; }
         if (path === 'arrow' || path === 'arrowColor') refreshArrPrev();
         clearTimeout(drawTimer); drawTimer = setTimeout(function () { P.draw(); }, 250);
       });
@@ -510,8 +527,17 @@
     });
     el.querySelectorAll('[data-pick]').forEach(function (b) {
       b.onclick = function () {
-        status('คลิกบนแผนที่ตรงตำแหน่ง "' + b.closest('.pt-row').querySelector('.pt-h').firstChild.textContent + '"');
-        P.pick(function (ll) { setCoord(b.dataset.pick, ll.lat.toFixed(6) + ', ' + ll.lng.toFixed(6)); status('เลือกตำแหน่งแล้ว'); });
+        status('คลิกบนแผนที่ตรงตำแหน่ง "' + b.closest('.pt-row').querySelector('.pt-h').firstChild.textContent + '" หรือคลิกจุดแยก/U-Turn เพื่อใช้พิกัดและชื่อจุดนั้น');
+        P.pick(function (ll, ref) {
+          const path = b.dataset.pick;
+          if (ref) {   // คลิกจุดแยก/U-Turn → ใช้ชื่อและ กม. ด้วย (ถ้าช่องยังว่าง)
+            const q = getP(S.cur, path);
+            if (!q.name) q.name = ref.name;
+            if (!q.km) q.km = ref.km;
+          }
+          setCoord(path, ll.lat.toFixed(6) + ', ' + ll.lng.toFixed(6));
+          status(ref ? 'ใช้จุด "' + ref.name + '" ทล.' + ref.road + ' กม.' + ref.km + ' แล้ว' : 'เลือกตำแหน่งแล้ว');
+        });
       };
     });
     el.querySelectorAll('[data-style]').forEach(function (c) {
@@ -548,6 +574,33 @@
       if (!text) { toast('วางข้อความก่อน (การอ่านเองอ่านรูปไม่ได้)', true); return; }
       applyParsed(AI.parseLocal(text, knownList()), false);
     };
+  }
+  // รายการจุดแยก/U-Turn ให้ติ๊กเลือก (เฉพาะโหมด "แสดงเฉพาะจุดที่เลือก")
+  function renderRefList() {
+    const box = $('refList'); if (!box || !S.cur) return;
+    const r = S.cur.ref || {};
+    if (r.pts !== 'sel') { box.innerHTML = ''; return; }
+    const sel = r.sel || [];
+    let h = '<div class="flex" style="margin-top:8px"><button class="btn btn-sm btn-outline" id="refInView">เลือกทุกจุดที่อยู่ในแผนที่ขณะนี้</button><button class="btn btn-sm btn-outline" id="refClr">ล้างที่เลือก</button>' +
+      '<span class="hint">เลือกแล้ว ' + sel.length + ' จุด · คลิกจุดสีจางบนแผนที่เพื่อเลือกได้เช่นกัน (จุดจางไม่ติดไปในรูป)</span></div><div class="ref-list">';
+    let road = null;
+    P.refPts.forEach(function (q) {
+      if (q.road !== road) { road = q.road; h += '<h5>ทางหลวงหมายเลข ' + esc(road) + '</h5>'; }
+      h += '<label><input type="checkbox" data-rp="' + esc(q.id) + '"' + (sel.indexOf(q.id) >= 0 ? ' checked' : '') + '><b>' + esc(q.km) + '</b>' + esc(q.name) + '</label>';
+    });
+    box.innerHTML = h + '</div>';
+    const set = function (ids) { S.cur.ref = Object.assign({}, S.cur.ref, { sel: ids }); markDirty(); P.drawRef(); renderRefList(); };
+    box.querySelectorAll('[data-rp]').forEach(function (c) {
+      c.onchange = function () {
+        const cur = (S.cur.ref.sel || []).filter(function (x) { return x !== c.dataset.rp; });
+        set(c.checked ? cur.concat([c.dataset.rp]) : cur);
+      };
+    });
+    $('refInView').onclick = function () {
+      const b = P.map().getBounds();
+      set(P.refPts.filter(function (q) { return b.contains([q.lat, q.lng]); }).map(function (q) { return q.id; }));
+    };
+    $('refClr').onclick = function () { set([]); };
   }
   function addFiles(list) {
     [].forEach.call(list || [], function (f) { if (/^image\//.test(f.type) && S.files.length < 5) S.files.push(f); });
@@ -754,7 +807,7 @@
   }
 
   /* ======================= ตั้งค่า ======================= */
-  // ตราที่ใช้บนผัง (ค่าเริ่มต้นของเว็บ): เก็บในเบราว์เซอร์ · มีไฟล์ logo-new-data.js แล้วค่อยเลือกแบบใหม่ได้
+  // ตราที่ใช้บนผัง (ค่าเริ่มต้นของเว็บ): เก็บในเบราว์เซอร์ · มีตราแบบใหม่ (อัปโหลดหรือไฟล์) แล้วค่อยเลือกแบบใหม่ได้
   function logoPref() {
     let v = null;
     try { v = localStorage.getItem('fdp_logo'); } catch (e) { /* ข้าม */ }
@@ -770,7 +823,13 @@
     el.innerHTML =
       '<div class="card" style="max-width:820px"><div class="section-title">🏛️ ตรากรมทางหลวงบนผัง <span class="sub">ค่าเริ่มต้นของทุกผัง · ผังแต่ละแผ่นเลือกเปลี่ยนเองได้ในหน้าแก้ไขผัง</span></div>' +
       '<div class="logo-opts">' + logoOpt('new', window.LOGO_NEW_DATA, 'ตราแบบใหม่') + logoOpt('old', window.LOGO_DATA || 'logo.png', 'ตราแบบเดิม') + '</div>' +
-      (window.LOGO_NEW_DATA ? '' : '<p class="hint">ยังไม่มีไฟล์ตราแบบใหม่ — บันทึกรูปตราเป็นชื่อ <code>logo-new.png</code> (พื้นหลังโปร่งใส) ไว้ในโฟลเดอร์เดียวกับ index.html แล้วเปิดหน้านี้ใหม่</p>') + '</div>' +
+      (canAdmin()
+        ? '<div class="flex" style="margin-top:12px"><input type="file" id="logoFile" accept="image/png,image/webp,image/jpeg,image/svg+xml" style="display:none">' +
+          '<button class="btn btn-outline" id="logoUp">📤 ' + (logoDb ? 'เปลี่ยนรูปตราแบบใหม่' : 'อัปโหลดตราแบบใหม่') + '</button>' +
+          (logoDb ? '<button class="btn btn-ghost" id="logoDel">ลบตราที่อัปโหลด</button>' : '') + '</div>' +
+          '<p class="hint">' + (logoDb ? 'อัปโหลดโดย ' + esc(logoDb.updatedBy || '-') + ' เมื่อ ' + esc(thDate(logoDb.updatedAt, true)) + ' · ' : '') +
+          'ใช้รูป PNG พื้นหลังโปร่งใสจะสวยที่สุด ระบบย่อขนาดให้เอง · ทุกคนในทีมเห็นตราเดียวกันทันที</p>'
+        : (window.LOGO_NEW_DATA ? '' : '<p class="hint">ยังไม่มีตราแบบใหม่ — ให้เจ้าของระบบหรือผู้ดูแลระบบอัปโหลดที่หน้านี้</p>')) + '</div>' +
       '<div class="card" style="max-width:820px"><div class="section-title">🤖 AI ผู้ช่วยกรอกข้อมูล (Claude) <span class="sub">เก็บเฉพาะในเบราว์เซอร์เครื่องนี้ ไม่บันทึกลงฐานข้อมูล</span></div>' +
       '<div class="alert warn">เมื่อกด "ให้ AI อ่าน" ข้อความและรูปที่แนบจะถูกส่งไปประมวลผลที่ Anthropic (ผู้ให้บริการ Claude) — ห้ามแนบเอกสารชั้นความลับหรือข้อมูลส่วนบุคคลอ่อนไหว และ AI อาจผิดพลาดได้ ต้องตรวจทุกครั้ง</div>' +
       '<div class="grid grid-2"><div class="field"><label>Anthropic API key</label>' + pwField('aiKey', 'off') + '<span class="hint">สร้างที่ console.anthropic.com (จ่ายตามการใช้งาน) · ไม่ใส่ก็ใช้ระบบได้ครบ ยกเว้นปุ่ม 🤖</span></div>' +
@@ -793,6 +852,29 @@
         toast('ตั้งค่าตราแล้ว — ผังที่เลือก "ตามค่าตั้งของเว็บ" จะใช้ตรานี้');
       };
     });
+    if ($('logoUp')) {
+      $('logoUp').onclick = function () { $('logoFile').click(); };
+      $('logoFile').onchange = async function () {
+        const f = this.files[0]; this.value = '';
+        if (!f) return;
+        const done = busy($('logoUp'), 'กำลังอัปโหลด...');
+        try {
+          const url = await shrinkLogo(f);
+          await FBL.saveLogo(url);
+          setLogoDb({ data: url, updatedBy: FBL.user.name, updatedAt: new Date().toISOString() });
+          try { localStorage.setItem('fdp_logo', 'new'); } catch (e) { /* ข้าม */ }
+          P.logoDefault = logoPref();
+          if (S.cur) P.draw();
+          toast('อัปโหลดตราแบบใหม่แล้ว');
+          renderSettings();
+        } catch (e) { toast(e.message || String(e), true); done(); }
+      };
+    }
+    if ($('logoDel')) $('logoDel').onclick = async function () {
+      if (!confirm('ลบตราแบบใหม่ที่อัปโหลดไว้?\nผังที่ใช้ตราแบบใหม่จะกลับไปใช้ตราแบบเดิม')) return;
+      const done = busy(this, 'กำลังลบ...');
+      try { await FBL.saveLogo(null); setLogoDb(null); toast('ลบตราแบบใหม่แล้ว'); renderSettings(); } catch (e) { toast(e.message, true); done(); }
+    };
     $('aiKey').value = c.key || '';
     $('aiSave').onclick = function () { AI.saveConfig({ key: $('aiKey').value.trim(), model: $('aiModel').value }); toast('บันทึกการตั้งค่า AI แล้ว'); };
     $('aiClear').onclick = function () { AI.clearConfig(); $('aiKey').value = ''; toast('ลบ key ออกจากเครื่องนี้แล้ว'); };
@@ -814,14 +896,40 @@
     if ($('demoReset')) $('demoReset').onclick = function () { if (confirm('ล้างข้อมูลทดลองทั้งหมดในเครื่องนี้?')) { FBL.resetDemo(); location.reload(); } };
   }
 
-  // ตราแบบใหม่: วางไฟล์ logo-new.png ไว้ในโฟลเดอร์ระบบ แล้วระบบเปิดให้เลือกใช้เอง
-  const newLogo = new Image();
-  newLogo.onload = function () {
-    window.LOGO_NEW_DATA = 'logo-new.png';
-    P.logos.new = 'logo-new.png'; P.logoDefault = logoPref();
+  // ตราแบบใหม่: ใช้รูปที่อัปโหลดผ่านหน้าตั้งค่าก่อน (traffic_settings/logo) · ถ้าไม่มีใช้ไฟล์ logo-new.png ในโฟลเดอร์ระบบ (ถ้ามี)
+  let logoDb = null, logoFile = null;
+  function applyNewLogo() {
+    const src = (logoDb && logoDb.data) || logoFile;
+    window.LOGO_NEW_DATA = src || undefined;
+    if (src) P.logos.new = src; else delete P.logos.new;
+    P.logoDefault = logoPref();
     if (S.cur) P.draw();
     if ($('view-settings') && $('view-settings').classList.contains('active')) renderSettings();
-  };
+  }
+  function setLogoDb(d) { logoDb = d; applyNewLogo(); }
+  // ย่อรูปให้ด้านยาวไม่เกิน 600px (พอสำหรับพิมพ์ A3) และเล็กพอเก็บในเอกสารเดียวของ Firestore (จำกัด 1 MB)
+  function shrinkLogo(file) {
+    return new Promise(function (resolve, reject) {
+      if (!/^image\//.test(file.type)) { reject(new Error('เลือกไฟล์รูปภาพเท่านั้น')); return; }
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        const w0 = img.naturalWidth || 600, h0 = img.naturalHeight || 600;
+        for (const max of [600, 450, 320]) {
+          const k = Math.min(1, max / Math.max(w0, h0)), c = document.createElement('canvas');
+          c.width = Math.round(w0 * k); c.height = Math.round(h0 * k);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          const out = c.toDataURL('image/png');
+          if (out.length < 700000) { resolve(out); return; }
+        }
+        reject(new Error('รูปใหญ่เกินไป ลองใช้รูปที่เรียบง่ายขึ้นหรือขนาดเล็กลง'));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('เปิดรูปนี้ไม่ได้')); };
+      img.src = url;
+    });
+  }
+  const newLogo = new Image();
+  newLogo.onload = function () { logoFile = 'logo-new.png'; applyNewLogo(); };
   newLogo.src = 'logo-new.png';
 
   boot();
