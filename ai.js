@@ -42,7 +42,26 @@
       .replace(/พิกัด\s*:?/g, ' ').replace(/[()（）]/g, ' ')
       .replace(/^[\s,:;|\-–•*]+|[\s,:;|\-–•*]+$/g, '').replace(/\s{2,}/g, ' ').trim();
   }
-  AI.parseLocal = function (text) {
+  // ชื่อจุดที่รู้พิกัดแล้ว (known = [{name, km, lat, lng}]) ที่ปรากฏในบรรทัด เรียงตามลำดับที่เขียน
+  const norm = function (s) { return String(s || '').toLowerCase().replace(/[\s.,:;\-–()（）'"“”]/g, ''); };
+  const bare = function (s) { return norm(s).replace(/^(ทางแยก|สี่แยก|สามแยก|แยก|วงเวียน|จุด)/, ''); };
+  function knownIn(line, known) {
+    const L = norm(line).split(''), hits = [];
+    (known || []).map(function (q) { return { q: q, keys: [norm(q.name), bare(q.name)] }; })
+      .sort(function (a, b) { return b.keys[0].length - a.keys[0].length; })   // ชื่อยาวก่อน กัน "ตะพง" ทับ "แยกตะพง"
+      .forEach(function (o) {
+        o.keys.some(function (k) {
+          if (k.length < 3) return false;
+          const i = L.join('').indexOf(k);
+          if (i < 0) return false;
+          for (let j = i; j < i + k.length; j++) L[j] = '\u0000';   // กันชื่อสั้นกว่ามาจับซ้ำ
+          hits.push({ i: i, q: o.q });
+          return true;
+        });
+      });
+    return hits.sort(function (a, b) { return a.i - b.i; }).map(function (h) { return h.q; });
+  }
+  AI.parseLocal = function (text, known) {
     const out = { flood: [], detour: [], zone: [], drain: [] };
     let ctx = null;
     String(text || '').split(/\r?\n/).forEach(function (line) {
@@ -53,7 +72,14 @@
       else if (/ท่วม/.test(t)) ctx = 'flood';
       else if (/ก่อสร้าง|อุบัติเหตุ|ซ่อม|บำรุง|ปิดช่อง|เขตงาน/.test(t)) ctx = 'zone';
       const c = AI.coords(t);
-      if (!c) return;
+      if (!c) {
+        // ไม่มีพิกัดในบรรทัด: หาชื่อจุดที่เคยลงพิกัดไว้ เช่น "ทางเบี่ยง แยกตะพง ถึง แยกศาลาสังสี"
+        const hits = knownIn(t, known);
+        hits.forEach(function (q) {
+          out[ctx || 'flood'].push({ name: q.name, km: hits.length === 1 && km(t) ? km(t) : (q.km || ''), lat: q.lat, lng: q.lng });
+        });
+        return;
+      }
       (out[ctx || 'flood']).push(Object.assign({ name: cleanName(t.replace(/^(จุด)?(น้ำท่วม|ทางเบี่ยง|เลี่ยง|เริ่ม|สิ้นสุด|ต้น|ปลาย)\S*\s*:?/, '')), km: km(t) }, c));
     });
     const all = String(text || '');
@@ -89,6 +115,7 @@
     'อ่านข้อความและรูปที่ได้รับ แล้วดึงข้อมูลตาม schema:',
     '- km ใช้รูปแบบ "233+100" (ไม่ต้องมีคำว่า กม.) ถ้าไม่มีให้เป็นสตริงว่าง',
     '- lat/lng เป็นองศาทศนิยม (ประเทศไทย lat ประมาณ 5–21, lng ประมาณ 97–106) ถ้าไม่มีพิกัดชัดเจนให้เป็น null ห้ามเดาพิกัด',
+    '- ถ้ามีรายการ "จุดที่เคยลงพิกัดไว้แล้ว" และจุดในข้อมูลใหม่มีแค่ชื่อ (ไม่มีพิกัด) ให้ใช้พิกัดและ กม. ของจุดที่ชื่อตรงกันจากรายการนั้น (ชื่ออาจเขียนต่างกันเล็กน้อย เช่น "ตะพง" = "แยกตะพง") และใช้ชื่อตามรายการ · ถ้าข้อมูลใหม่ให้พิกัดมาเอง ให้ใช้พิกัดใหม่',
     '- name = ชื่อจุด เช่น "แยกตะพง" "แยกศาลาสังสี" ไม่ต้องใส่ กม. หรือพิกัดซ้ำในชื่อ',
     '- place = ชื่อบริเวณ เช่น "บ้านซ่น - ตำนานป่า" · road = ตัวเลขทางหลวงอย่างเดียว เช่น "3" · section = ชื่อตอนควบคุม เช่น "ระยอง-กะเฉด"',
     '- date รูปแบบ YYYY-MM-DD (ค.ศ.) ถ้าเป็น พ.ศ. ให้ลบ 543 ถ้าไม่มีให้เป็นสตริงว่าง',
@@ -123,13 +150,17 @@
     });
   };
 
-  AI.parse = async function (text, files, kindHint) {
+  AI.parse = async function (text, files, kindHint, known) {
     const cfg = AI.config();
     if (!cfg.key) throw new Error('ยังไม่ได้ใส่ API key ที่หน้า "ตั้งค่า"');
     const c = await client(cfg.key);
     const content = [];
     for (const f of files || []) content.push(await AI.imageBlock(f));
-    content.push({ type: 'text', text: (kindHint ? 'ผู้ใช้กำลังทำผังแบบ: ' + kindHint + '\n\n' : '') + 'ข้อมูลที่ได้รับ:\n' + (text || '(ดูจากรูป)') });
+    // จุดที่เคยลงพิกัดไว้ — ถ้าข้อมูลใหม่มีแค่ชื่อ ให้ AI ใช้พิกัดจากรายการนี้
+    const memo = (known || []).slice(0, 300).map(function (q) { return '- ' + q.name + (q.km ? ' | กม.' + q.km : '') + ' | ' + q.lat + ', ' + q.lng; }).join('\n');
+    content.push({ type: 'text', text: (kindHint ? 'ผู้ใช้กำลังทำผังแบบ: ' + kindHint + '\n\n' : '') +
+      (memo ? 'จุดที่เคยลงพิกัดไว้แล้ว (ชื่อ | กม. | lat, lng):\n' + memo + '\n\n' : '') +
+      'ข้อมูลที่ได้รับ:\n' + (text || '(ดูจากรูป)') });
     const params = {
       model: cfg.model || 'claude-opus-5', max_tokens: 16000, system: SYSTEM,
       messages: [{ role: 'user', content: content }],

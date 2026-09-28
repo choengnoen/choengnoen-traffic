@@ -48,6 +48,75 @@
   function canAdmin() { return FBL.user && (FBL.user.isOwner || FBL.user.isAdmin); }
   function fmtKm(m) { return (m / 1000).toFixed(2) + ' กม.'; }
 
+  /* ======================= ความจำพิกัด (ชื่อจุด → พิกัด) =======================
+     จำชื่อจุดที่เคยลงพิกัดไว้ จากทุกผังของทีม (Firestore) + จุดที่เพิ่งกรอกในเครื่องนี้
+     ครั้งต่อไปใส่แค่ชื่อ เช่น "แยกตะพง" ระบบเติมพิกัด (และ กม.) ให้เอง */
+  const MEMO_KEY = 'tp_places_v1';
+  const PT_KEYS = ['flood', 'detour', 'zone', 'drain'];
+  function normName(s) { return String(s || '').toLowerCase().replace(/[\s.,:;\-–()（）'"“”]/g, ''); }
+  function baseName(s) { return normName(s).replace(/^(ทางแยก|สี่แยก|สามแยก|แยก|วงเวียน|จุด)/, ''); }
+  function memoLocal() { try { return JSON.parse(localStorage.getItem(MEMO_KEY)) || {}; } catch (e) { return {}; } }
+  // จำจุดที่มีทั้งชื่อและพิกัดของผังนี้ไว้ในเครื่อง (เผื่อยังไม่ได้บันทึกผัง)
+  function remember(p) {
+    if (!p) return;
+    const m = memoLocal(), t = new Date().toISOString();
+    PT_KEYS.forEach(function (k) {
+      if (!p[k]) return;
+      [p[k].a, p[k].b].forEach(function (q) {
+        if (q && q.name && P.has(q) && normName(q.name)) m[normName(q.name)] = { name: q.name.trim(), km: q.km || '', lat: q.lat, lng: q.lng, t: t };
+      });
+    });
+    try { localStorage.setItem(MEMO_KEY, JSON.stringify(m)); } catch (e) { /* ข้าม */ }
+  }
+  // รายชื่อจุดที่รู้พิกัด: { ชื่อที่ปรับรูปแล้ว: {name, km, lat, lng, t} } — ถ้าชื่อซ้ำใช้ของล่าสุด
+  function places() {
+    const m = {};
+    const put = function (q, t) {
+      if (!q || !q.name || !P.has(q)) return;
+      const k = normName(q.name);
+      if (k && (!m[k] || m[k].t <= t)) m[k] = { name: String(q.name).trim(), km: q.km || '', lat: q.lat, lng: q.lng, t: t };
+    };
+    const lm = memoLocal();
+    Object.keys(lm).forEach(function (k) { put(lm[k], lm[k].t || ''); });
+    (Array.isArray(S.plans) ? S.plans : []).forEach(function (p) {
+      const t = p.deletedAt ? '0' : (p.updatedAt || '');   // ผังในถังขยะใช้เป็นตัวเลือกสุดท้าย
+      PT_KEYS.forEach(function (k) { if (p[k]) { put(p[k].a, t); put(p[k].b, t); } });
+    });
+    return m;
+  }
+  function findPlace(name, all) {
+    const k = normName(name);
+    if (!k) return null;
+    all = all || places();
+    if (all[k]) return all[k];
+    // ไม่ตรงทั้งคำ: ลองเทียบโดยไม่สนคำนำหน้า เช่น "ตะพง" = "แยกตะพง"
+    const b = baseName(name);
+    if (b.length < 2) return null;
+    let best = null;
+    Object.keys(all).forEach(function (x) { if (baseName(x) === b && (!best || best.t < all[x].t)) best = all[x]; });
+    return best;
+  }
+  // เติมพิกัดให้จุดที่มีชื่อแต่ยังไม่มีพิกัด · คืนรายชื่อจุดที่เติมให้
+  function fillKnown(p) {
+    const all = places(), got = [];
+    PT_KEYS.forEach(function (k) {
+      if (!p[k]) return;
+      [p[k].a, p[k].b].forEach(function (q) {
+        if (!q || !q.name || P.has(q)) return;
+        const f = findPlace(q.name, all);
+        if (!f) return;
+        q.lat = f.lat; q.lng = f.lng;
+        if (!q.km && f.km) q.km = f.km;
+        got.push(q.name);
+      });
+    });
+    return got;
+  }
+  function knownList() {
+    const all = places();
+    return Object.keys(all).map(function (k) { return all[k]; });
+  }
+
   function newPlan(kind) {
     const p = { kind: kind, status: 'active', date: today(), org: 'แขวงทางหลวงระยอง', road: '', section: '', place: '', title: '', base: 'sat', pos: {}, view: null };
     if (kind === 'flood') Object.assign(p, { style: 'doh', flood: { a: pt(), b: pt(), via: [] }, detour: { a: pt(), b: pt(), via: [] }, dirLeft: '', dirRight: '' });
@@ -292,7 +361,7 @@
     const p = getP(S.cur, path) || pt();
     const ll = P.has(p) ? p.lat + ', ' + p.lng : '';
     return '<div class="pt-row"><div class="pt-h">' + esc(label) + '<span class="' + (P.has(p) ? 'pt-ok' : 'pt-bad') + '" data-okfor="' + path + '">' + (P.has(p) ? '✓ มีพิกัด' : 'ยังไม่มีพิกัด') + '</span></div>' +
-      '<div class="grid"><div class="field"><input data-k="' + path + '.name" value="' + esc(p.name || '') + '" placeholder="' + esc(phName || 'ชื่อจุด เช่น แยกตะพง') + '"></div>' +
+      '<div class="grid"><div class="field"><input data-k="' + path + '.name" list="tpPlaces" autocomplete="off" value="' + esc(p.name || '') + '" placeholder="' + esc(phName || 'ชื่อจุด เช่น แยกตะพง') + '"></div>' +
       '<div class="field"><input data-k="' + path + '.km" value="' + esc(p.km || '') + '" placeholder="กม. เช่น 229+768"></div>' +
       '<div class="field span-all"><div class="pt-ll"><input data-ll="' + path + '" value="' + esc(ll) + '" placeholder="พิกัด 12.77, 101.71 หรือวางลิงก์ Google Maps">' +
       '<button class="btn btn-sm btn-outline" data-pick="' + path + '" title="คลิกเลือกตำแหน่งบนแผนที่">📍</button></div></div></div></div>';
@@ -392,6 +461,8 @@
         fld('สีลูกศร', 'arrowColor', { type: 'select', options: Object.keys(P.ARROW_COLORS).map(function (x) { return { k: x, n: P.ARROW_COLORS[x] }; }) }) +
         '<div class="span-all arrow-prev" id="arrPrev"></div>' : '') + '</div>' +
       '<p class="hint">กล่อง "ขออภัยในความไม่สะดวก" และ "คำอธิบายสัญลักษณ์" ลากย้ายบนผังได้ · ดับเบิลคลิกที่กล่องเพื่อคืนตำแหน่งเดิม</p></div>';
+    // รายชื่อจุดที่เคยลงพิกัด (ให้เลือกตอนพิมพ์ชื่อจุด)
+    h += '<datalist id="tpPlaces">' + knownList().map(function (q) { return '<option value="' + esc(q.name) + '">' + esc((q.km ? 'กม.' + q.km + ' · ' : '') + q.lat + ', ' + q.lng) + '</option>'; }).join('') + '</datalist>';
     el.innerHTML = h;
     bindForm(el);
     refreshArrPrev();
@@ -424,6 +495,19 @@
     el.querySelectorAll('[data-ll]').forEach(function (inp) {
       inp.addEventListener('change', function () { setCoord(inp.dataset.ll, inp.value); });
     });
+    // พิมพ์ชื่อจุดที่เคยลงพิกัดไว้ → เติมพิกัดให้เอง (เฉพาะจุดที่ยังไม่มีพิกัด)
+    el.querySelectorAll('[data-k$=".name"]').forEach(function (inp) {
+      inp.addEventListener('change', function () {
+        const q = getP(S.cur, inp.dataset.k.replace(/\.name$/, ''));
+        if (!q || P.has(q)) return;
+        const f = findPlace(q.name);
+        if (!f) return;
+        q.lat = f.lat; q.lng = f.lng;
+        if (!q.km && f.km) q.km = f.km;
+        markDirty(); refreshPtInputs(); P.draw();
+        status('ใช้พิกัดที่เคยลงไว้ของ "' + f.name + '" (' + f.lat + ', ' + f.lng + ') — ตรวจสอบ แล้วกด ⚡ สร้างผังอัตโนมัติ');
+      });
+    });
     el.querySelectorAll('[data-pick]').forEach(function (b) {
       b.onclick = function () {
         status('คลิกบนแผนที่ตรงตำแหน่ง "' + b.closest('.pt-row').querySelector('.pt-h').firstChild.textContent + '"');
@@ -455,14 +539,14 @@
       const text = $('aiText').value.trim();
       if (!text && !S.files.length) { toast('วางข้อความหรือแนบรูปก่อน', true); return; }
       const done = busy(this, 'AI กำลังอ่าน...');
-      try { const r = await AI.parse(text, S.files, KIND[S.cur.kind].name); applyParsed(r, true); }
+      try { const r = await AI.parse(text, S.files, KIND[S.cur.kind].name, knownList()); applyParsed(r, true); }
       catch (e) { toast(e.message, true); }
       done();
     };
     $('aiLocal').onclick = function () {
       const text = $('aiText').value.trim();
       if (!text) { toast('วางข้อความก่อน (การอ่านเองอ่านรูปไม่ได้)', true); return; }
-      applyParsed(AI.parseLocal(text), false);
+      applyParsed(AI.parseLocal(text, knownList()), false);
     };
   }
   function addFiles(list) {
@@ -478,7 +562,7 @@
     const c = AI.coords(text);
     const p = getP(S.cur, path);
     if (!c) { if (text.trim()) toast('อ่านพิกัดไม่ได้ — ตัวอย่าง 12.776552, 101.711629 หรือลิงก์ Google Maps แบบยาว', true); p.lat = null; p.lng = null; }
-    else { p.lat = c.lat; p.lng = c.lng; }
+    else { p.lat = c.lat; p.lng = c.lng; remember(S.cur); }
     markDirty();
     refreshPtInputs();
     if (c) status('แก้ไขพิกัดแล้ว — กด ⚡ สร้างผังอัตโนมัติ เพื่อคำนวณเส้นใหม่');
@@ -525,10 +609,11 @@
       fill(p[key].a, src.a);
       if (key !== 'drain') fill(p[key].b, src.b);
     });
+    const known = fillKnown(p);   // จุดที่ได้มาแค่ชื่อ → ใช้พิกัดที่เคยลงไว้
     markDirty();
     renderForm();
     const miss = missingCoords();
-    const note = fromAI && r.remarks ? ' · หมายเหตุจาก AI: ' + r.remarks : '';
+    const note = (known.length ? ' · ใช้พิกัดที่เคยลงไว้: ' + known.join(', ') : '') + (fromAI && r.remarks ? ' · หมายเหตุจาก AI: ' + r.remarks : '');
     status((miss.length ? 'ยังขาดพิกัด: ' + miss.join(', ') + ' (ใส่เองหรือกด 📍 เลือกบนแผนที่)' : 'กรอกข้อมูลแล้ว ตรวจสอบความถูกต้อง แล้วกด ⚡ สร้างผังอัตโนมัติ') + note, !!miss.length);
   }
   function missingCoords() {
@@ -636,6 +721,7 @@
       if (!p.title) p.title = '';
       const id = await FBL.savePlan(JSON.parse(JSON.stringify(p)));
       p.id = id; S.dirty = false;
+      remember(p);
       toast('บันทึกผังแล้ว');
       renderForm();
     } catch (e) { toast('บันทึกไม่สำเร็จ: ' + e.message, true); }
