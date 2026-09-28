@@ -353,7 +353,7 @@
     const v = getP(S.cur, path);
     let input;
     if (opt.type === 'select') input = '<select data-k="' + path + '">' + opt.options.map(function (o) { const k = typeof o === 'object' ? o.k : o, n = typeof o === 'object' ? o.n : o; return '<option value="' + esc(k) + '"' + (String(v) === String(k) ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('') + '</select>';
-    else if (opt.type === 'textarea') input = '<textarea data-k="' + path + '" rows="' + (opt.rows || 3) + '" placeholder="' + esc(opt.ph || '') + '">' + esc(v || '') + '</textarea>';
+    else if (opt.type === 'textarea') input = '<textarea data-k="' + path + '" rows="' + (opt.rows || 3) + '"' + (opt.fill ? ' data-fill="1"' : '') + ' placeholder="' + esc(opt.ph || '') + '">' + esc(v || '') + '</textarea>';
     else if (opt.type === 'checkbox') return '<div class="field ' + (opt.cls || '') + '"><label><input type="checkbox" data-k="' + path + '"' + (v ? ' checked' : '') + '> ' + esc(label) + '</label></div>';
     else input = '<input type="' + (opt.type || 'text') + '" data-k="' + path + '" value="' + esc(v == null ? '' : v) + '" placeholder="' + esc(opt.ph || '') + '">';
     return '<div class="field ' + (opt.cls || '') + '"><label>' + esc(label) + '</label>' + input + (opt.hint ? '<span class="hint">' + opt.hint + '</span>' : '') + '</div>';
@@ -394,7 +394,7 @@
     const mini = {
       doh: '<div style="position:absolute;left:0;right:0;top:0;height:30%;background:#fff"></div><div style="position:absolute;right:4px;bottom:4px;width:30%;height:26%;background:#fff;border-radius:2px"></div>',
       alert: '<div style="position:absolute;left:8%;right:8%;top:6%;height:30%;background:#d61a1a;border:2px solid #fff;border-radius:5px"></div><div style="position:absolute;left:30%;top:50%;width:50%;height:5px;background:#3bd13b;transform:rotate(20deg)"></div>',
-      info: '<div style="position:absolute;inset:0;background:#0d3a78"></div><div style="position:absolute;left:3%;top:28%;width:24%;bottom:14%;background:#fff;border-radius:3px"></div><div style="position:absolute;right:3%;top:28%;width:24%;bottom:14%;background:#fff;border-radius:3px"></div><div style="position:absolute;left:30%;right:30%;top:28%;bottom:14%;background:#6b8f5b"></div>'
+      info: '<div style="position:absolute;inset:0;background:#0d3a78"></div><div style="position:absolute;left:3%;top:28%;width:20%;bottom:14%;background:#fff;border-radius:3px"></div><div style="position:absolute;right:3%;top:28%;width:20%;bottom:14%;background:#fff;border-radius:3px"></div><div style="position:absolute;left:25%;right:25%;top:28%;bottom:14%;background:#6b8f5b"></div>'
     };
     return '<div class="style-cards">' + Object.keys(P.STY).map(function (k) {
       return '<div class="style-card' + (cur === k ? ' active' : '') + '" data-style="' + k + '"><div class="mini">' + mini[k] + '</div>' + esc(P.STY[k].name) + '</div>';
@@ -503,8 +503,8 @@
         '<div class="section-title" style="font-size:14px;margin:12px 0 6px">แบบอินโฟกราฟิก</div><div class="grid grid-2">' +
         fld('หัวเรื่อง (สีขาว)', 'info1', { ph: 'เส้นทางเลี่ยงน้ำท่วม' }) + fld('หัวเรื่อง (สีเหลือง)', 'info2', { ph: p.road ? 'ทล.' + p.road : '' }) +
         fld('คำขวัญใต้หัวเรื่อง', 'infoSub', { cls: 'span-all', ph: '“โปรดตรวจสอบเส้นทางก่อนออกเดินทาง และขับขี่ด้วยความระมัดระวัง”' }) +
-        fld('ขั้นตอนการเดินทาง (1 บรรทัด = 1 ข้อ)', 'steps', { type: 'textarea', rows: 4, ph: P.autoSteps(p) }) +
-        fld('ข้อควรทราบ (1 บรรทัด = 1 ข้อ)', 'notes', { type: 'textarea', rows: 4, ph: P.autoNotes(p) }) +
+        fld('ขั้นตอนการเดินทาง (1 บรรทัด = 1 ข้อ)', 'steps', { type: 'textarea', rows: 4, ph: P.autoSteps(p), fill: true, hint: 'คลิกในช่องเพื่อแก้ไข/เพิ่มข้อความได้เลย · ลบจนว่าง = กลับไปใช้ข้อความอัตโนมัติ' }) +
+        fld('ข้อควรทราบ (1 บรรทัด = 1 ข้อ)', 'notes', { type: 'textarea', rows: 4, ph: P.autoNotes(p), fill: true, hint: 'คลิกในช่องเพื่อแก้ไข/เพิ่มข้อความได้เลย · ลบจนว่าง = กลับไปใช้ข้อความอัตโนมัติ' }) +
         fld('สายด่วน', 'hotline', { ph: 'โทร. 1586' }) + '</div>';
     }
     h += sec('text', '✏️ ปรับแต่งข้อความบนผัง', tx);
@@ -540,6 +540,17 @@
 
   let drawTimer = null;
   function bindForm(el) {
+    // ช่องข้อความอัตโนมัติ: คลิกแล้วนำข้อความอัตโนมัติมาใส่ให้แก้/เพิ่มต่อได้ · ออกจากช่องโดยไม่ได้แก้ = ยังใช้แบบอัตโนมัติ
+    el.querySelectorAll('textarea[data-fill]').forEach(function (t) {
+      t.addEventListener('focus', function () {
+        if (t.value || !t.placeholder) return;
+        t.value = t.placeholder;
+        t.setSelectionRange(t.value.length, t.value.length);
+      });
+      t.addEventListener('blur', function () {
+        if (t.value.trim() === t.placeholder.trim() && !getP(S.cur, t.dataset.k)) t.value = '';
+      });
+    });
     el.querySelectorAll('[data-k]').forEach(function (inp) {
       const path = inp.dataset.k;
       const ev = inp.tagName === 'SELECT' || inp.type === 'checkbox' || inp.type === 'date' ? 'change' : 'input';
@@ -877,7 +888,7 @@
     try {
       if (p.kind === 'flood') {
         status('กำลังลากเส้นช่วงน้ำท่วมตามถนน...');
-        const f = await RT.route([p.flood.a].concat(p.flood.via || [], [p.flood.b]));
+        const f = await RT.route([p.flood.a].concat(p.flood.via || [], [p.flood.b]), p.flood.side);
         p.floodLine = RT.encode(f.pts); p.floodLen = f.distance;
         // ช่วงน้ำท่วมเพิ่มเติม: มีต้น-ปลาย = ลากเส้นตามถนน · มีจุดเดียว = หมุด
         const fx = p.floods2 || [], segs = [f.pts];
@@ -887,7 +898,7 @@
           if (!P.has(s.a)) continue;
           if (!P.has(s.b)) { segs.push([s.a]); continue; }
           status('กำลังลากเส้นจุดน้ำท่วมที่ ' + (i + 2) + ' ตามถนน...');
-          const r = await RT.route([s.a].concat(s.via || [], [s.b]));
+          const r = await RT.route([s.a].concat(s.via || [], [s.b]), s.side);
           s.line = RT.encode(r.pts); s.len = r.distance;
           segs.push(r.pts);
         }
@@ -909,7 +920,7 @@
       }
       if (p.kind === 'safety') {
         status('กำลังลากเขตงานตามถนน...');
-        const z = await RT.route([p.zone.a].concat(p.zone.via || [], [p.zone.b]));
+        const z = await RT.route([p.zone.a].concat(p.zone.via || [], [p.zone.b]), p.zone.side);
         p.zoneLine = RT.encode(z.pts); p.zoneLen = z.distance;
         const res = await layoutDevices();
         P.draw(); P.fit(); P.autoLabels();

@@ -5,7 +5,7 @@
      flood  — ทางเบี่ยงอุทกภัย (ภาพรวม) มี 3 สไตล์
                 doh   แบบกรมทางหลวง 16:9  — หัวขาว + ตรากรม · ป้าย กม. · ป้ายทางเบี่ยง · ลูกศรบอกทิศ · กล่องคำอธิบาย
                 alert แบบเตือนภัย 4:5    — ป้ายแดงหัวผัง · เส้นมีลูกศร · กล่องชี้ "ใช้เส้นทางนี้ / ควรเลี่ยง"
-                info  แบบอินโฟกราฟิก 3:2 — หัวน้ำเงิน · แผงขั้นตอนการเดินทาง · แผงข้อควรทราบ · สายด่วน
+                info  แบบอินโฟกราฟิก 16:9 (2400×1350) — หัวน้ำเงิน · แผงขั้นตอนการเดินทาง · แผงข้อควรทราบ · สายด่วน
      safety — ติดตั้งสิ่งอำนวยความปลอดภัย (ภาพขยาย) ใช้สไตล์ doh: เขตงานสีส้ม · ป้ายเตือน · กรวย · แผงกั้น ฯลฯ
 
    ทุกป้าย/อุปกรณ์ลากย้ายได้ · คลิกเส้นแล้วลากจุดวงกลมเพื่อปรับเส้น (เส้นวิ่งตามถนนใหม่เอง)
@@ -16,7 +16,7 @@
   const STY = {
     doh:   { w: 1920, h: 1080, name: 'แบบกรมทางหลวง (16:9)' },
     alert: { w: 1080, h: 1350, name: 'แบบเตือนภัย แนวตั้ง (4:5)' },
-    info:  { w: 1920, h: 1280, name: 'แบบอินโฟกราฟิกประชาสัมพันธ์ (3:2)' }
+    info:  { w: 2400, h: 1350, name: 'แบบอินโฟกราฟิกประชาสัมพันธ์ (16:9 กว้าง)' }
   };
   const esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   const lines = function (s) { return String(s || '').split(/\r?\n/).map(function (x) { return x.trim(); }).filter(Boolean); };
@@ -65,7 +65,7 @@
   ICON.outlet = '<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" fill="#0277bd" stroke="#fff" stroke-width="3.5"/><path d="M10 20c3-3 6-3 9 0s6 3 9 0 6-3 7 0M10 28c3-3 6-3 9 0s6 3 9 0 6-3 7 0" stroke="#fff" stroke-width="3" fill="none"/></svg>';
   const P = window.Poster = { DEV: DEV, devSvg: devSvg, STY: STY, ICON: ICON, DEV_SAFETY: DEV_SAFETY, DEV_DRAIN: DEV_DRAIN, DEV_FLOOD: DEV_FLOOD };
   const DRAIN = '#00b0ff', WATER = '#4fc3f7', PURPLE = '#9c27b0';   // PURPLE = ทางเบี่ยงที่ 2
-  let map, sheet, stage, plan, onChange, layers, deco, handles, selected = null, bases, placing = null;
+  let map, sheet, stage, plan, onChange, layers, deco, handles, selected = null, bases, placing = null, sideBar = null, sidePick = false;
   let refBack, refPts, refKey = '';
 
   /* ---------- ตัวช่วย ---------- */
@@ -351,7 +351,16 @@
     map.setView([12.64, 101.39], 13);
     map.on('moveend', function () { if (plan) { const c = map.getCenter(); plan.view = { lat: c.lat, lng: c.lng, zoom: map.getZoom() }; changed('view'); } });
     map.on('zoomend', drawChevrons);
+    const SideCtl = L.Control.extend({ options: { position: 'topright' }, onAdd: function () {
+      const d = L.DomUtil.create('div', 'pz-side');
+      L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
+      d.addEventListener('click', function (e) { const b = e.target.closest('[data-s]'); if (b) sideCmd(b.dataset.s); });
+      return d;
+    } });
+    sideBar = new SideCtl().addTo(map).getContainer();
+    renderSide();
     map.on('click', function (e) {
+      if (sidePick) { sideAt(e.latlng); return; }
       if (P.onPick) { const f = P.onPick; P.onPick = null; sheet.classList.remove('placing'); drawRef(); f(e.latlng); return; }
       if (placing) { placeAt(e.latlng); return; }
       if (selected) select(null);
@@ -494,9 +503,24 @@
   }
 
   /* ---------- ป้าย ---------- */
+  // ป้ายย่อ/ขยายได้: ชี้เมาส์ที่ป้ายแล้วกด ＋ / － (เก็บใน plan.pos[key].sc) · ลูกศรบอกทิศใช้ปุ่มหมุนของตัวเอง
+  function scaledHtml(key, html) {
+    if (html.indexOf('<div class="pz-dirwrap"') === 0) return html;
+    const sc = (plan.pos[key] && +plan.pos[key].sc) || 1;
+    return '<div class="pz-lwrap" style="transform:translate(-50%,-50%) scale(' + sc + ')">' + html +
+      '<div class="pz-zm"><span data-z="1.1" title="ขยายป้าย">＋</span><span data-z="0.9" title="ย่อป้าย">－</span></div></div>';
+  }
   function labelMarker(key, ll, html, anchorLL, leaderStyle) {
     const m = L.marker(ll, { draggable: true, keyboard: false, zIndexOffset: 1000,
-      icon: L.divIcon({ className: 'pz-lbl', iconSize: [0, 0], html: html }) });
+      icon: L.divIcon({ className: 'pz-lbl', iconSize: [0, 0], html: scaledHtml(key, html) }) });
+    m.on('click', function (e) {
+      const t = e.originalEvent && e.originalEvent.target, z = t && t.dataset && +t.dataset.z;
+      if (!z || !plan.pos[key]) return;
+      const p = plan.pos[key];
+      p.sc = Math.round(Math.min(3, Math.max(0.4, ((+p.sc || 1) * z))) * 100) / 100;
+      m.setIcon(L.divIcon({ className: 'pz-lbl', iconSize: [0, 0], html: scaledHtml(key, html) }));
+      changed('pos');
+    });
     let leader = null;
     if (anchorLL) leader = L.polyline([anchorLL, ll], Object.assign({ color: RED, weight: 2.5, interactive: false }, leaderStyle || {})).addTo(layers);
     m.on('drag', function () { if (leader) leader.setLatLngs([anchorLL, m.getLatLng()]); });
@@ -591,6 +615,14 @@
 
   // จัดตำแหน่งป้ายอัตโนมัติจากตำแหน่งเส้นบนจอขณะนี้
   P.autoLabels = function () {
+    const old = plan.pos || {};
+    autoPos();
+    // จัดตำแหน่งใหม่แต่คงขนาดป้ายที่ผู้ใช้ย่อ/ขยายไว้
+    Object.keys(plan.pos).forEach(function (k) { if (old[k] && old[k].sc) plan.pos[k].sc = old[k].sc; });
+    P.draw();
+    changed('pos');
+  };
+  function autoPos() {
     const pos = plan.pos = {}, st = style();
     const mp = linePts(mainKey()), dp = isSafety() ? [] : linePts('detour');
     const size = map.getSize();
@@ -598,7 +630,7 @@
       const r = plan.drain;
       if (has(r.a)) { const a = px(r.a); pos.srcL = geo(clampPt(L.point(a.x + (a.x < size.x / 2 ? -200 : 200), a.y - 120), 200, 70)); }
       if (has(r.b)) { const b = px(r.b); pos.outL = geo(clampPt(L.point(b.x + (b.x < size.x / 2 ? -200 : 200), b.y + 110), 200, 70)); }
-      P.draw(); changed('pos'); return;
+      return;
     }
     if (st === 'alert') {
       // กล่องเขียวไปทางฝั่งทางเบี่ยง กล่องแดงไปฝั่งตรงข้าม (ไม่ทับกัน)
@@ -615,7 +647,7 @@
           pos.cR = geo(clampPt(L.point(b.x, b.y - up * 100), 260, 330));
         }
       }
-      P.draw(); changed('pos'); return;
+      return;
     }
     if (st === 'info') {
       if (mp.length > 1) { const f = px(mid(mp)); pos.place = geo(clampPt(L.point(f.x, f.y + 120), 200, 120)); }
@@ -630,7 +662,7 @@
         pos.det2A = geo(clampPt(L.point(A.x, A.y + 70), 170, 130));
         pos.det2B = geo(clampPt(L.point(B.x, B.y + 70), 170, 130));
       }
-      P.draw(); changed('pos'); return;
+      return;
     }
     if (mp.length > 1) {
       const a = px(mp[0]), b = px(mp[mp.length - 1]), m = px(mid(mp));
@@ -672,9 +704,7 @@
       pos.det2A = geo(clampPt(L.point(A.x, A.y + 105), 240, 70));
       pos.det2B = geo(clampPt(L.point(B.x, B.y + 105), 240, 70));
     }
-    P.draw();
-    changed('pos');
-  };
+  }
 
   // ซูมให้เห็นทุกอย่าง (เว้นที่ให้หัวผัง ป้าย และกล่องคำอธิบาย)
   P.fit = function () {
@@ -758,10 +788,49 @@
   /* ---------- ปรับเส้นด้วยการลากจุด ---------- */
   function ctrlPts(key) { const r = routeOf(key); return [r.a].concat(r.via || [], [r.b]); }
   function select(key) {
-    selected = key;
+    selected = key; sidePick = false;
     handles.clearLayers();
     if (key) drawHandles();
+    renderSide();
     if (P.onSelect) P.onSelect(key);
+  }
+  /* ---------- เลือกฝั่งทาง (ถนนมีเกาะกลาง) ----------
+     r.side: '' อัตโนมัติ · 'L' ฝั่งซ้ายของทิศ ต้น→ปลาย · 'R' ฝั่งขวา · 'line' เส้นตรงตามจุดที่ลาก (ไม่วิ่งตามถนน) */
+  const SIDE_NAME = { '': 'อัตโนมัติ', L: 'ฝั่งซ้าย (ตามทิศจุดต้น → จุดปลาย)', R: 'ฝั่งขวา (ตามทิศจุดต้น → จุดปลาย)', line: 'เส้นตรงตามจุดที่ลาก' };
+  function renderSide() {
+    if (!sideBar) return;
+    const r = selected && selected !== 'drain' ? routeOf(selected) : null;
+    sideBar.style.display = r ? '' : 'none';
+    sideBar.classList.toggle('picking', sidePick);
+    if (!r) return;
+    const s = r.side || '';
+    const btn = function (k, t) { return '<button type="button" data-s="' + k + '"' + ((k === s && k !== 'pick') || (k === 'pick' && sidePick) ? ' class="on"' : '') + '>' + t + '</button>'; };
+    sideBar.innerHTML = '<b>แนวเส้น: ' + SIDE_NAME[s] + '</b>' +
+      (sidePick ? '<div class="pz-side-tip">คลิกบนแผนที่ฝั่งทางที่ต้องการ (ใกล้ช่องจราจรนั้น)</div>' : '') +
+      '<div>' + btn('pick', '👆 คลิกเลือกฝั่งทาง') + btn('swap', '⇅ สลับฝั่ง') + '</div>' +
+      '<div>' + btn('', 'อัตโนมัติ') + btn('line', '✏️ เส้นตรงตามจุดที่ลาก') + '</div>';
+  }
+  function sideCmd(k) {
+    const r = selected && routeOf(selected);
+    if (!r) return;
+    if (k === 'pick') { sidePick = !sidePick; renderSide(); return; }
+    sidePick = false;
+    r.side = k === 'swap' ? (r.side === 'L' ? 'R' : 'L') : k;
+    renderSide();
+    rebuild(selected);
+  }
+  function sideAt(ll) {
+    const key = selected, pts = key ? ctrlPts(key).filter(has).map(px) : [];
+    sidePick = false;
+    if (pts.length < 2) { renderSide(); return; }
+    const p = map.latLngToContainerPoint(ll);
+    let best = 1, bd = Infinity;
+    for (let j = 1; j < pts.length; j++) { const d = L.LineUtil.pointToSegmentDistance(p, pts[j - 1], pts[j]); if (d < bd) { bd = d; best = j; } }
+    const a = pts[best - 1], b = pts[best];
+    // พิกัดจอ (แกน y ชี้ลง): ผลคูณไขว้ติดลบ = อยู่ซ้ายของทิศ a→b
+    routeOf(key).side = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) < 0 ? 'L' : 'R';
+    renderSide();
+    rebuild(key);
   }
   P.select = select;
   function drawHandles() {
@@ -790,6 +859,7 @@
     });
   }
   function lineClick(key, ll) {
+    if (sidePick) { sideAt(ll); return; }
     if (placing) { placeAt(ll); return; }
     if (selected !== key) { select(key); return; }
     // แทรกจุดใหม่ให้อยู่ลำดับที่ถูกต้องตามแนวเส้น
@@ -816,7 +886,7 @@
     }
     if (P.onBusy) P.onBusy('กำลังคำนวณเส้นทางตามถนน...');
     try {
-      const res = await RT.route(ctrlPts(key));
+      const res = await RT.route(ctrlPts(key), routeOf(key).side);
       if (isExtra(key)) { const r = routeOf(key); r.line = RT.encode(res.pts); r.len = res.distance; }
       else { plan[lineField(key)] = RT.encode(res.pts); plan[key + 'Len'] = res.distance; }
       if (P.onBusy) P.onBusy('');
@@ -827,7 +897,7 @@
 
   /* ---------- ส่งออก ---------- */
   function filter(n) {
-    return !(n.classList && (n.classList.contains('leaflet-control-zoom') || n.classList.contains('pz-rot') || n.classList.contains('pz-h') || n.classList.contains('pz-refghost')));
+    return !(n.classList && (n.classList.contains('leaflet-control-zoom') || n.classList.contains('pz-rot') || n.classList.contains('pz-h') || n.classList.contains('pz-refghost') || n.classList.contains('pz-side') || n.classList.contains('pz-zm')));
   }
   P.exportPng = async function (name) {
     select(null);
