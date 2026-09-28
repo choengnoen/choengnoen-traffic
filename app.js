@@ -419,16 +419,6 @@
       '<span class="flex" style="margin-left:auto;font-family:Sarabun,sans-serif;font-weight:400">' + fld('วันที่', 'date', { type: 'date' }) + fld('สถานะ', 'status', { type: 'select', options: [{ k: 'active', n: 'ใช้งานอยู่' }, { k: 'ended', n: 'สิ้นสุดแล้ว' }] }) + '</span></div>' +
       (k === 'flood' ? '<p class="hint" style="margin:0">ขั้นตอน: ① ใส่สายทางและจุดน้ำท่วม (วางข้อความทีเดียวหลายจุดได้) → ② ใส่ทางเบี่ยง → ③ กด ⚡ สร้างผัง · ผังตัวอย่างอยู่ด้านล่าง</p>' : '') + '</div>';
 
-    // ผู้ช่วย AI (พับเก็บ)
-    const aiBody = '<div class="field"><textarea id="aiText" rows="4" placeholder="' + esc(k === 'flood'
-        ? 'เช่น น้ำท่วมทาง ทล.3 ตอน ระยอง-กะเฉด บริเวณบ้านซ่น-ตำนานป่า กม.233+100 (12.6386, 101.3783) ถึง กม.236+700 (12.6397, 101.4006)\nทางเบี่ยง แยกตะพง กม.229+768 12.6461,101.3441 ถึง แยกศาลาสังสี กม.239+710 12.6410,101.4222'
-        : k === 'safety' ? 'เช่น งานก่อสร้าง ทล.3 กม.233+100 (12.6386,101.3783) ถึง กม.233+500 (12.6389,101.3841) ปิดช่องซ้าย'
-          : 'เช่น น้ำท่วมขังหน้าตลาด ทล.3 กม.234+200 พิกัด 12.6398, 101.3854') + '"></textarea></div>' +
-      '<div class="ai-drop" id="aiDrop">📎 แนบรูป (ภาพหน้าจอ LINE / แผนที่ / หนังสือ) — คลิก ลากไฟล์มาวาง หรือกด Ctrl+V ในช่องข้อความ<input type="file" id="aiFile" accept="image/*" multiple hidden><div class="ai-files" id="aiFiles"></div></div>' +
-      '<div class="flex" style="margin-top:8px"><button class="btn btn-primary btn-sm" id="aiRun">🤖 ให้ AI อ่าน</button><button class="btn btn-outline btn-sm" id="aiLocal">อ่านเอง (ไม่ใช้ AI)</button></div>' +
-      (AI.ready() ? '' : '<p class="hint" style="margin:6px 0 0">ยังไม่ได้ตั้งค่า AI — ใช้ "อ่านเอง" ได้ (อ่านพิกัด/กม. จากข้อความ) หรือใส่ API key ที่หน้าตั้งค่า</p>');
-    const aiSec = sec('ai', '🤖 ผู้ช่วยกรอกข้อมูลด้วย AI / อ่านจากรูป <span class="muted small">(ไม่บังคับ)</span>', aiBody);
-
     // ข้อมูลหลัก + ปุ่มสร้างผัง
     const buildRow = '<div class="card wide"><div class="build-row"><button class="btn btn-primary btn-lg" id="edBuild">⚡ ' + (k === 'flood' ? '③ ' : '') + 'สร้างผังอัตโนมัติ</button><div id="edLens" class="hint"></div></div></div>';
     if (k === 'flood') {
@@ -470,7 +460,7 @@
 
     // รูปแบบผัง
     let look = (k === 'flood' ? '<div class="section-title" style="font-size:14px;margin:0 0 6px">สไตล์ผัง</div>' + styleCards() : '') +
-      '<div class="grid grid-3" style="margin-top:10px">' + fld('พื้นหลังแผนที่', 'base', { type: 'select', options: [{ k: 'sat', n: 'ภาพดาวเทียม' }, { k: 'street', n: 'แผนที่ถนน' }, { k: 'gmap', n: 'แผนที่แบบ Google (หมุดเฉพาะที่สำคัญ)' }] }) +
+      '<div class="grid grid-3" style="margin-top:10px">' + fld('พื้นหลังแผนที่', 'base', { type: 'select', options: [{ k: 'sat', n: 'ภาพดาวเทียม' },{ k: 'gmap', n: 'แผนที่แบบ Google (หมุดเฉพาะที่สำคัญ)' }] }) +
       fld('แบบหัวผัง (แบบกรมทางหลวง)', 'head', { type: 'select', options: Object.keys(P.HEADS).map(function (x) { return { k: x, n: P.HEADS[x] }; }) }) +
       fld('ตรากรมทางหลวง', 'logo', { type: 'select', options: [{ k: '', n: 'ตามค่าตั้งของเว็บ (' + (P.logoDefault === 'new' ? 'แบบใหม่' : 'แบบเดิม') + ')' }, { k: 'new', n: 'ตราแบบใหม่' + (P.logos.new ? '' : ' (ยังไม่มีไฟล์)') }, { k: 'old', n: 'ตราแบบเดิม' }] }) +
       (k === 'flood' ? fld('รูปแบบลูกศรบอกทิศ', 'arrow', { type: 'select', options: Object.keys(P.ARROWS).map(function (x) { return { k: x, n: P.ARROWS[x].name }; }) }) +
@@ -519,7 +509,6 @@
       fld('แสดงชื่อตำบล', 'ref.tambonLbl', { type: 'checkbox' }) + '</div>' +
       '<div id="refList"></div>' +
       '<p class="hint">ปุ่ม 📍 ของแต่ละจุด: คลิกจุดสีเขียวบนแผนที่เพื่อใช้พิกัด ชื่อ และ กม. ของจุดนั้นได้ทันที · พิมพ์ชื่อจุด เช่น "สี่แยกตะพง" ระบบเติมพิกัดให้เอง</p>');
-    h += aiSec;
     // รายชื่อจุดที่เคยลงพิกัด (ให้เลือกตอนพิมพ์ชื่อจุด)
     h += '<datalist id="tpPlaces">' + knownList().map(function (q) { return '<option value="' + esc(q.name) + '">' + esc((q.km ? 'กม.' + q.km + ' · ' : '') + q.lat + ', ' + q.lng) + '</option>'; }).join('') + '</datalist>';
     el.innerHTML = h;
@@ -660,37 +649,6 @@
         markDirty(); renderForm(); P.draw(); refreshLens();
       };
     });
-    // ผู้ช่วยกรอกข้อมูล
-    const drop = $('aiDrop'), file = $('aiFile');
-    drop.onclick = function (e) { if (e.target === drop) file.click(); };
-    file.onchange = function () { addFiles(file.files); file.value = ''; };
-    drop.ondragover = function (e) { e.preventDefault(); drop.classList.add('over'); };
-    drop.ondragleave = function () { drop.classList.remove('over'); };
-    drop.ondrop = function (e) { e.preventDefault(); drop.classList.remove('over'); addFiles(e.dataTransfer.files); };
-    $('aiText').addEventListener('paste', function (e) {
-      const imgs = [].filter.call((e.clipboardData && e.clipboardData.files) || [], function (f) { return /^image\//.test(f.type); });
-      if (imgs.length) { e.preventDefault(); addFiles(imgs); }
-    });
-    showFiles();
-    $('aiRun').onclick = async function () {
-      const text = $('aiText').value.trim();
-      if (!AI.ready()) {   // ไม่มี key → อ่านเองแทน (อ่านได้เฉพาะข้อความ)
-        if (!text) { toast('ยังไม่ได้ใส่ API key — การอ่านรูปต้องใส่ key ที่แท็บ "ตั้งค่า" ก่อน', true); return; }
-        applyParsed(AI.parseLocal(text, knownList()), false);
-        toast('ยังไม่ได้ใส่ API key จึงใช้ "อ่านเอง" แทน (อ่านรูปไม่ได้)');
-        return;
-      }
-      if (!text && !S.files.length) { toast('วางข้อความหรือแนบรูปก่อน', true); return; }
-      const done = busy(this, 'AI กำลังอ่าน...');
-      try { const r = await AI.parse(text, S.files, KIND[S.cur.kind].name, knownList()); applyParsed(r, true); }
-      catch (e) { toast(e.message, true); }
-      done();
-    };
-    $('aiLocal').onclick = function () {
-      const text = $('aiText').value.trim();
-      if (!text) { toast('วางข้อความก่อน (การอ่านเองอ่านรูปไม่ได้)', true); return; }
-      applyParsed(AI.parseLocal(text, knownList()), false);
-    };
   }
   // รายการจุดแยก/U-Turn ให้ติ๊กเลือก (เฉพาะโหมด "แสดงเฉพาะจุดที่เลือก")
   function renderRefList() {
@@ -718,15 +676,6 @@
       set(P.refPts.filter(function (q) { return b.contains([q.lat, q.lng]); }).map(function (q) { return q.id; }));
     };
     $('refClr').onclick = function () { set([]); };
-  }
-  function addFiles(list) {
-    [].forEach.call(list || [], function (f) { if (/^image\//.test(f.type) && S.files.length < 5) S.files.push(f); });
-    showFiles();
-  }
-  function showFiles() {
-    const box = $('aiFiles'); if (!box) return;
-    box.innerHTML = S.files.map(function (f, i) { return '<img src="' + URL.createObjectURL(f) + '" title="คลิกเพื่อเอาออก" data-i="' + i + '">'; }).join('');
-    box.querySelectorAll('img').forEach(function (im) { im.onclick = function (e) { e.stopPropagation(); S.files.splice(+im.dataset.i, 1); showFiles(); }; });
   }
   function setCoord(path, text) {
     const c = AI.coords(text);
@@ -759,36 +708,6 @@
     if (p.kind === 'safety' && p.zoneLine) out.push('เขตงาน ' + fmtKm(P.floodLength(p)), 'อุปกรณ์ ' + (p.devices || []).length + ' ชิ้น');
     if (p.kind === 'drain' && p.drainLine) out.push('แนวระบายน้ำ ' + fmtKm(p.drainLen || 0), 'ระบายลง: ' + (p.drain.b.name || '-'), p.drop != null ? 'ต่างระดับ ~' + (+p.drop).toFixed(1) + ' ม.' : '');
     el.textContent = out.filter(Boolean).join(' · ');
-  }
-  // เติมข้อมูลจากผู้ช่วย: เติมเฉพาะช่องที่ได้ค่ามา ไม่ลบของเดิม
-  function applyParsed(r, fromAI) {
-    const p = S.cur;
-    ['road', 'section', 'place'].forEach(function (k) { if (r[k]) p[k] = r[k]; });
-    if (fromAI) {
-      if (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) p.date = r.date;
-      if (p.kind === 'safety' && r.workType) p.workType = r.workType;
-      if (p.kind === 'flood') { if (r.dirLeft) p.dirLeft = r.dirLeft; if (r.dirRight) p.dirRight = r.dirRight; }
-    }
-    const fill = function (dst, src) {
-      if (!dst || !src) return;
-      if (src.name) dst.name = src.name;
-      if (src.km) dst.km = src.km;
-      if (src.lat != null && src.lng != null) { dst.lat = src.lat; dst.lng = src.lng; }
-    };
-    const map = { flood: ['flood', 'detour'], safety: ['zone'], drain: ['drain'] }[p.kind];
-    map.forEach(function (key) {
-      let src = r[key];
-      if (key === 'zone' && (!src || !src.a) && r.flood) src = r.flood;          // ข้อความที่ไม่ได้ระบุชนิด
-      if (!src) return;
-      fill(p[key].a, src.a);
-      if (key !== 'drain') fill(p[key].b, src.b);
-    });
-    const known = fillKnown(p);   // จุดที่ได้มาแค่ชื่อ → ใช้พิกัดที่เคยลงไว้
-    markDirty();
-    renderForm();
-    const miss = missingCoords();
-    const note = (known.length ? ' · ใช้พิกัดที่เคยลงไว้: ' + known.join(', ') : '') + (fromAI && r.remarks ? ' · หมายเหตุจาก AI: ' + r.remarks : '');
-    status((miss.length ? 'ยังขาดพิกัด: ' + miss.join(', ') + ' (ใส่เองหรือกด 📍 เลือกบนแผนที่)' : 'กรอกข้อมูลแล้ว ตรวจสอบความถูกต้อง แล้วกด ⚡ สร้างผังอัตโนมัติ') + note, !!miss.length);
   }
   // วางข้อความรายการจุดน้ำท่วม (หลายจุด) → แทนที่จุดน้ำท่วมทั้งหมด · ทางเบี่ยงที่อ่านได้ใส่ทางเบี่ยงที่ 1 และ 2
   function applyFloodPaste() {
@@ -1006,7 +925,7 @@
     return v === 'old' ? 'old' : 'new';
   }
   function renderSettings() {
-    const el = $('view-settings'), c = AI.config(), lp = logoPref();
+    const el = $('view-settings'), lp = logoPref();
     const logoOpt = function (k, src, name) {
       return '<label class="logo-opt' + (lp === k ? ' active' : '') + (src ? '' : ' disabled') + '"><input type="radio" name="logoPref" value="' + k + '"' + (lp === k ? ' checked' : '') + (src ? '' : ' disabled') + '>' +
         (src ? '<img src="' + src + '" alt="">' : '<span class="logo-none">ยังไม่มีไฟล์</span>') + '<span>' + name + '</span></label>';
@@ -1017,11 +936,6 @@
       '<p class="hint">' + (window.LOGO_NEW_DATA
         ? 'ตราแบบใหม่ใช้ไฟล์กลางจากฐานข้อมูลกลาง (CN-Hub) — ทุกระบบใช้ตราเดียวกัน'
         : 'ยังเชื่อมต่อฐานข้อมูลกลางไม่ได้ — ใช้ตราแบบเดิมไปก่อน') + '</p></div>' +
-      '<div class="card" style="max-width:820px"><div class="section-title">🤖 AI ผู้ช่วยกรอกข้อมูล (Claude) <span class="sub">เก็บเฉพาะในเบราว์เซอร์เครื่องนี้ ไม่บันทึกลงฐานข้อมูล</span></div>' +
-      '<div class="alert warn">เมื่อกด "ให้ AI อ่าน" ข้อความและรูปที่แนบจะถูกส่งไปประมวลผลที่ Anthropic (ผู้ให้บริการ Claude) — ห้ามแนบเอกสารชั้นความลับหรือข้อมูลส่วนบุคคลอ่อนไหว และ AI อาจผิดพลาดได้ ต้องตรวจทุกครั้ง</div>' +
-      '<div class="grid grid-2"><div class="field"><label>Anthropic API key</label>' + pwField('aiKey', 'off') + '<span class="hint">สร้างที่ console.anthropic.com (จ่ายตามการใช้งาน) · ไม่ใส่ก็ใช้ระบบได้ครบ ยกเว้นปุ่ม 🤖</span></div>' +
-      '<div class="field"><label>โมเดล</label><select id="aiModel">' + AI.MODELS.map(function (m) { return '<option value="' + m.key + '"' + ((c.model || 'claude-opus-5') === m.key ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div></div>' +
-      '<div class="flex" style="margin-top:12px"><button class="btn btn-primary" id="aiSave">บันทึก</button><button class="btn btn-outline" id="aiTest">ทดสอบการเชื่อมต่อ</button><button class="btn btn-ghost" id="aiClear">ลบ key ออกจากเครื่องนี้</button></div></div>' +
       '<div class="card" style="max-width:820px"><div class="section-title">🔑 เปลี่ยนรหัสผ่านของฉัน <span class="sub">ใช้ร่วมกับระบบงานควบคุมงานโครงการ</span></div>' +
       '<div class="grid grid-2"><div class="field"><label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</label>' + pwField('pw1') + '</div><div class="field"><label>ยืนยันรหัสผ่านใหม่</label>' + pwField('pw2') + '</div></div>' +
       '<div class="flex" style="margin-top:12px"><button class="btn btn-primary" id="pwSave">เปลี่ยนรหัสผ่าน</button></div></div>' +
@@ -1039,16 +953,6 @@
         toast('ตั้งค่าตราแล้ว — ผังที่เลือก "ตามค่าตั้งของเว็บ" จะใช้ตรานี้');
       };
     });
-    $('aiKey').value = c.key || '';
-    $('aiSave').onclick = function () { AI.saveConfig({ key: $('aiKey').value.trim(), model: $('aiModel').value }); toast('บันทึกการตั้งค่า AI แล้ว'); };
-    $('aiClear').onclick = function () { AI.clearConfig(); $('aiKey').value = ''; toast('ลบ key ออกจากเครื่องนี้แล้ว'); };
-    $('aiTest').onclick = async function () {
-      AI.saveConfig({ key: $('aiKey').value.trim(), model: $('aiModel').value });
-      if (!AI.ready()) { toast('ใส่ API key ก่อน', true); return; }
-      const done = busy(this, 'กำลังทดสอบ...');
-      try { const r = await AI.test(); toast('เชื่อมต่อได้: ' + r); } catch (e) { toast('เชื่อมต่อไม่ได้: ' + (e.message || e), true); }
-      done();
-    };
     $('pwSave').onclick = async function () {
       const a = $('pw1').value, b = $('pw2').value;
       if (a.length < 8) { toast('รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร', true); return; }
