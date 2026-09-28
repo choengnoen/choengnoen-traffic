@@ -34,10 +34,13 @@
     // อุปกรณ์งานระบายน้ำ
     pump:    { name: 'เครื่องสูบน้ำ', size: 50, svg: '<svg viewBox="0 0 40 40"><rect x="3" y="9" width="25" height="21" rx="3" fill="#455a64" stroke="#fff" stroke-width="2.5"/><circle cx="15.5" cy="19.5" r="6" fill="#90caf9"/><path d="M28 15h7v5" stroke="#0288d1" stroke-width="3.5" fill="none"/><path d="M35 24c0 3-2 4.5-2 4.5s-2-1.5-2-4.5 2-4.5 2-4.5 2 1.5 2 4.5z" fill="#0288d1"/></svg>' },
     culvert: { name: 'ท่อลอด/ท่อระบายน้ำ', size: 46, svg: '<svg viewBox="0 0 40 40"><rect x="2" y="12" width="36" height="16" rx="3" fill="#9e9e9e" stroke="#fff" stroke-width="2.5"/><circle cx="12" cy="20" r="5" fill="#263238"/><circle cx="28" cy="20" r="5" fill="#263238"/></svg>' },
-    sandbag: { name: 'แนวกระสอบทราย', size: 40, svg: '<svg viewBox="0 0 40 30"><rect x="2" y="15" width="17" height="11" rx="5" fill="#c8a165" stroke="#5d4037" stroke-width="2"/><rect x="21" y="15" width="17" height="11" rx="5" fill="#c8a165" stroke="#5d4037" stroke-width="2"/><rect x="11" y="4" width="17" height="11" rx="5" fill="#c8a165" stroke="#5d4037" stroke-width="2"/></svg>' }
+    sandbag: { name: 'แนวกระสอบทราย', size: 40, svg: '<svg viewBox="0 0 40 30"><rect x="2" y="15" width="17" height="11" rx="5" fill="#c8a165" stroke="#5d4037" stroke-width="2"/><rect x="21" y="15" width="17" height="11" rx="5" fill="#c8a165" stroke="#5d4037" stroke-width="2"/><rect x="11" y="4" width="17" height="11" rx="5" fill="#c8a165" stroke="#5d4037" stroke-width="2"/></svg>' },
+    // จุดน้ำท่วมเพิ่มเติม (ผังทางเบี่ยงอุทกภัย วางได้หลายจุด)
+    flood:   { name: 'จุดน้ำท่วม', size: 56, svg: '<svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="27" fill="#e01010" stroke="#fff" stroke-width="4"/><path d="M30 10c-5 7-8 11-8 15a8 8 0 0 0 16 0c0-4-3-8-8-15z" fill="#fff"/><path d="M11 40c3-3 5-3 8 0s5 3 8 0 5-3 8 0 5 3 8 0 5-3 7 0M11 48c3-3 5-3 8 0s5 3 8 0 5-3 8 0 5 3 8 0 5-3 7 0" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round"/></svg>' }
   };
   const DEV_SAFETY = ['sign', 'speed', 'arrow', 'cone', 'barrier', 'light', 'flag', 'end'];
   const DEV_DRAIN = ['pump', 'culvert', 'sandbag', 'sign', 'cone', 'barrier'];
+  const DEV_FLOOD = ['flood', 'sign', 'barrier', 'cone', 'sandbag', 'pump'];
   function devSvg(d) {
     if (d.t === 'speed') return '<svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="27" fill="#fff" stroke="#e01010" stroke-width="7"/><text x="30" y="39" text-anchor="middle" font-size="24" font-weight="700" font-family="Kanit,sans-serif" fill="#111">' + esc(d.text || '') + '</text></svg>';
     if (d.t === 'arrow') {
@@ -60,7 +63,7 @@
   };
   ICON.drop = '<svg viewBox="0 0 40 52"><path d="M20 2C12 14 5 22 5 32a15 15 0 0 0 30 0C35 22 28 14 20 2z" fill="#e01010" stroke="#fff" stroke-width="3"/><path d="M13 33c0 4 3 7 7 7" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/></svg>';
   ICON.outlet = '<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" fill="#0277bd" stroke="#fff" stroke-width="3.5"/><path d="M10 20c3-3 6-3 9 0s6 3 9 0 6-3 7 0M10 28c3-3 6-3 9 0s6 3 9 0 6-3 7 0" stroke="#fff" stroke-width="3" fill="none"/></svg>';
-  const P = window.Poster = { DEV: DEV, devSvg: devSvg, STY: STY, ICON: ICON, DEV_SAFETY: DEV_SAFETY, DEV_DRAIN: DEV_DRAIN };
+  const P = window.Poster = { DEV: DEV, devSvg: devSvg, STY: STY, ICON: ICON, DEV_SAFETY: DEV_SAFETY, DEV_DRAIN: DEV_DRAIN, DEV_FLOOD: DEV_FLOOD };
   const DRAIN = '#00b0ff', WATER = '#4fc3f7';
   let map, sheet, stage, plan, onChange, layers, deco, handles, selected = null, bases, placing = null;
 
@@ -142,7 +145,10 @@
   function q(sel) { return sheet.querySelector(sel); }
   function renderStatic() {
     const st = style(), org = plan.org || 'แขวงทางหลวงระยอง', fl = P.floodLength();
-    sheet.className = 'pz-sheet st-' + st + (plan.base === 'street' ? ' tone-street' : '');
+    sheet.className = 'pz-sheet st-' + st + (plan.base === 'street' ? ' tone-street' : '') + (HEADS[plan.head] ? ' hd-' + plan.head : '');
+    placeBoxes();
+    const lg = P.logoSrc(plan);
+    sheet.querySelectorAll('img.pz-logo').forEach(function (im) { if (im.getAttribute('src') !== lg) im.src = lg; });
     sheet.style.width = STY[st].w + 'px'; sheet.style.height = STY[st].h + 'px';
     // doh
     q('.pz-org').textContent = org;
@@ -168,6 +174,13 @@
       const dl = plan.detourLen || 0;
       rows = '<div class="pz-lg"><i style="background:' + RED + '"></i>' + esc(plan.legendFlood || 'บริเวณที่น้ำท่วมทาง') + (fl ? ' (' + fmtKm(fl) + ')' : '') + '</div>' +
         '<div class="pz-lg"><i style="background:' + BLUE + '"></i>' + esc(plan.legendDetour || 'เส้นทางเบี่ยงการจราจร') + (dl ? ' (' + fmtKm(dl) + ')' : '') + '</div>';
+      // จุดน้ำท่วม/อุปกรณ์ที่วางเพิ่ม → แสดงในคำอธิบายด้วย
+      const used = [];
+      (plan.devices || []).forEach(function (d) { if (DEV[d.t] && used.indexOf(d.t) < 0) used.push(d.t); });
+      rows += used.map(function (t) {
+        const n = plan.devices.filter(function (d) { return d.t === t; }).length;
+        return '<div class="pz-lg"><span class="pz-lgi">' + devSvg({ t: t }) + '</span>' + DEV[t].name + (n > 1 ? ' (' + n + ' จุด)' : '') + '</div>';
+      }).join('');
     }
     q('.pz-legend').innerHTML = '<div class="pz-lg-h">คำอธิบายสัญลักษณ์</div>' + rows;
     q('.pz-legend').classList.toggle('compact', isSafety());
@@ -191,6 +204,56 @@
     q('.pz-ilegend').innerHTML = '<div><i style="background:' + RED + '"></i>เส้นทางหลัก (น้ำท่วม ควรหลีกเลี่ยง)</div><div><i style="background:' + BLUE + '"></i>เส้นทางที่แนะนำ</div>';
   }
 
+  /* ---------- แบบหัวผัง (ใช้กับแบบกรมทางหลวง) ---------- */
+  const HEADS = { white: 'ขาวเรียบ (เดิม)', navy: 'แถบน้ำเงิน', yellow: 'แถบเหลือง', stripe: 'ขาว + แถบเตือนเหลืองดำ', line: 'ขาว + เส้นน้ำเงินแดง' };
+  P.HEADS = HEADS;
+
+  /* ---------- ตรากรมทางหลวง: old = แบบเดิม, new = แบบใหม่ · ผังแต่ละแผ่นเลือกเองได้ (plan.logo) หรือใช้ค่าตั้งของเว็บ (P.logoDefault) ---------- */
+  P.logos = { old: 'logo.png' };
+  P.logoDefault = 'old';
+  P.logoSrc = function (pl) {
+    const k = (pl && pl.logo) || P.logoDefault;
+    return P.logos[k] || P.logos.old;
+  };
+
+  /* ---------- กล่องข้อความลากย้ายได้ (เก็บระยะเลื่อนไว้ใน plan.box หน่วยพิกเซลของแผ่นจริง) ---------- */
+  const BOXES = { apology: '.pz-apology', legend: '.pz-legend', ilegend: '.pz-ilegend', afoot: '.pz-afoot', north: '.pz-north' };
+  function placeBoxes() {
+    const b = plan.box || {};
+    Object.keys(BOXES).forEach(function (k) { const o = b[k]; q(BOXES[k]).style.translate = o ? o.dx + 'px ' + o.dy + 'px' : ''; });
+  }
+  function bindBoxDrag() {
+    Object.keys(BOXES).forEach(function (k) {
+      const el = q(BOXES[k]);
+      el.classList.add('pz-movable');
+      el.title = 'ลากเพื่อย้ายตำแหน่ง · ดับเบิลคลิกเพื่อคืนตำแหน่งเดิม';
+      el.addEventListener('pointerdown', function (e) {
+        if (!plan || e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const s = sheet.getBoundingClientRect().width / sheet.offsetWidth;   // แผ่นถูกย่อ → แปลงระยะเมาส์กลับเป็นพิกเซลจริง
+        const o = (plan.box && plan.box[k]) || { dx: 0, dy: 0 }, x0 = e.clientX, y0 = e.clientY;
+        let cur = null;
+        el.setPointerCapture(e.pointerId);
+        function mv(ev) {
+          cur = { dx: Math.round(o.dx + (ev.clientX - x0) / s), dy: Math.round(o.dy + (ev.clientY - y0) / s) };
+          el.style.translate = cur.dx + 'px ' + cur.dy + 'px';
+        }
+        function up() {
+          el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+          if (!cur) return;
+          plan.box = Object.assign({}, plan.box); plan.box[k] = cur; changed('box');
+        }
+        el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+      });
+      el.addEventListener('dblclick', function (e) {
+        e.stopPropagation();
+        if (!plan || !plan.box || !plan.box[k]) return;
+        plan.box = Object.assign({}, plan.box); delete plan.box[k];
+        placeBoxes(); changed('box');
+      });
+    });
+  }
+
   /* ---------- สร้างแผ่นผัง ---------- */
   P.mount = function (stageEl, logoSrc) {
     stage = stageEl;
@@ -211,11 +274,14 @@
       '<div class="pz-ifoot"><div class="pz-slogan"><div class="pz-slogan1">เดินทางปลอดภัย</div><div class="pz-slogan2"></div></div><div class="pz-hotline">' + ICON.phone + '<div>สายด่วนกรมทางหลวง<br><b></b></div></div></div>' +
       '</div>';
     sheet = stage.querySelector('.pz-sheet');
+    bindBoxDrag();
     map = L.map(q('.pz-map'), { zoomSnap: 0.25, zoomDelta: 0.5, wheelPxPerZoomLevel: 120, maxZoom: 20, zoomControl: true });
     const opt = { maxZoom: 20, maxNativeZoom: 19, crossOrigin: 'anonymous' };
     bases = {
       sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', Object.assign({ attribution: '© Esri' }, opt)),
-      street: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', Object.assign({ attribution: '© Esri' }, opt))
+      street: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', Object.assign({ attribution: '© Esri' }, opt)),
+      // แผนที่แบบ Google: ซ่อนหมุดร้านค้า/ร้านอาหาร/โรงแรม (poi.business) และป้ายขนส่ง เหลือหมุดสำคัญ เช่น โรงพยาบาล วัด โรงเรียน หน่วยงานราชการ
+      gmap: L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&hl=th&x={x}&y={y}&z={z}&scale=2&apistyle=s.t%3A33%7Cp.v%3Aoff%2Cs.t%3A40%7Cp.v%3Aoff', Object.assign({ attribution: '© Google', subdomains: '0123' }, opt, { maxNativeZoom: 20 }))
     };
     layers = L.layerGroup().addTo(map);
     deco = L.layerGroup().addTo(map);
@@ -251,7 +317,7 @@
   };
   P.setBase = function (b) {
     Object.keys(bases).forEach(function (k) { map.removeLayer(bases[k]); });
-    bases[b === 'street' ? 'street' : 'sat'].addTo(map);
+    (bases[b] || bases.sat).addTo(map);
   };
   // เปลี่ยนสไตล์: ขนาดแผ่นเปลี่ยน → ซูมพอดีและจัดป้ายใหม่
   P.restyle = function () {
@@ -282,6 +348,7 @@
         L.circleMarker(LL(p), { radius: 11, color: RED, weight: 5, fillColor: '#fff', fillOpacity: 1, interactive: false }).addTo(layers);
       });
     }
+    drawDevices();
   }
   // ลูกศรบอกทิศบนเส้น (แบบเตือนภัย / อินโฟกราฟิก)
   function drawChevrons() {
@@ -322,6 +389,10 @@
       clickable(L.polyline(zp.map(LL), { color: ORANGE, weight: 20, opacity: .85, lineCap: 'butt' }).addTo(layers), 'zone');
       L.polyline(zp.map(LL), { color: '#fff', weight: 3, dashArray: '10 12', interactive: false }).addTo(layers);
     }
+    drawDevices();
+  }
+  // อุปกรณ์/จุดน้ำท่วมที่วางเอง: ลากย้ายได้ · ดับเบิลคลิกแก้ข้อความ · คลิกขวาลบ
+  function drawDevices() {
     (plan.devices || []).forEach(function (d, i) {
       if (!DEV[d.t] || !has(d)) return;
       const sz = DEV[d.t].size, withText = d.text && d.t !== 'speed' && d.t !== 'arrow';
@@ -332,7 +403,7 @@
       m.on('dblclick', function (e) {
         L.DomEvent.stop(e);
         if (['cone', 'barrier', 'light', 'flag'].indexOf(d.t) >= 0) return;
-        const s = prompt(d.t === 'speed' ? 'ความเร็วที่จำกัด (กม./ชม.)' : 'ข้อความบนป้าย', d.text || '');
+        const s = prompt(d.t === 'speed' ? 'ความเร็วที่จำกัด (กม./ชม.)' : d.t === 'flood' ? 'ชื่อจุดน้ำท่วม (เว้นว่าง = ไม่แสดงข้อความ)' : 'ข้อความบนป้าย', d.text || '');
         if (s !== null) { d.text = s.trim(); P.draw(); changed('devices'); }
       });
       m.on('contextmenu', function (e) {
@@ -354,11 +425,25 @@
     m.addTo(layers);
     return m;
   }
+  /* ---------- รูปแบบลูกศรบอกทิศ (plan.arrow / plan.arrowColor) — วาดชี้ขวา ฝั่งซ้ายกลับด้านเอง ---------- */
+  const ARROWS = {
+    line:    { name: 'เส้นตรงหัวสามเหลี่ยม (เดิม)', svg: function (c) { return '<path d="M6 28 H170" stroke="' + c + '" stroke-width="13" stroke-linecap="round"/><path d="M160 4 L216 28 L160 52 Z" fill="' + c + '"/>'; } },
+    block:   { name: 'ลูกศรทึบ ขอบขาว', svg: function (c) { return '<path d="M5 17 H148 V4 L215 28 L148 52 V39 H5 Z" fill="' + c + '" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>'; } },
+    chevron: { name: 'ลูกศรบั้ง >>>', svg: function (c) { return [14, 80, 146].map(function (x) { return '<path d="M' + x + ' 7 L' + (x + 50) + ' 28 L' + x + ' 49" fill="none" stroke="#fff" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/><path d="M' + x + ' 7 L' + (x + 50) + ' 28 L' + x + ' 49" fill="none" stroke="' + c + '" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>'; }).join(''); } },
+    dashed:  { name: 'เส้นประ', svg: function (c) { return '<path d="M8 28 H160" stroke="' + c + '" stroke-width="12" stroke-dasharray="24 13"/><path d="M156 5 L216 28 L156 51 Z" fill="' + c + '"/>'; } },
+    curve:   { name: 'ลูกศรโค้ง (เลี้ยว)', svg: function (c) { return '<path d="M10 50 Q90 2 172 22" fill="none" stroke="' + c + '" stroke-width="12" stroke-linecap="round"/><path d="M160 2 L214 30 L156 46 Z" fill="' + c + '"/>'; } },
+    sign:    { name: 'ป้ายลูกศร (พื้นสี)', svg: function (c) { return '<rect x="3" y="3" width="214" height="50" rx="10" fill="' + c + '" stroke="#fff" stroke-width="4"/><path d="M26 28 H170" stroke="#fff" stroke-width="10" stroke-linecap="round"/><path d="M158 12 L194 28 L158 44 Z" fill="#fff"/>'; } }
+  };
+  const ARROW_COLORS = { '#ff1a1a': 'แดง', '#1f6fe0': 'น้ำเงิน', '#1d8f2e': 'เขียว', '#ff8f00': 'ส้ม', '#ffc400': 'เหลือง', '#111111': 'ดำ' };
+  P.ARROWS = ARROWS; P.ARROW_COLORS = ARROW_COLORS;
+  P.arrowSvg = function (kind, color, left) {
+    const a = ARROWS[kind] || ARROWS.line;
+    return '<svg class="pz-arrow" viewBox="0 0 220 56" width="220" height="56" style="' + (left ? 'transform:scaleX(-1)' : '') + '">' + a.svg(ARROW_COLORS[color] ? color : '#ff1a1a') + '</svg>';
+  };
   function arrowHtml(text, left, ang) {
     return '<div class="pz-dirwrap" style="transform:translate(-50%,-50%) rotate(' + (+ang || 0).toFixed(1) + 'deg)">' +
       '<div class="pz-dirtext">' + esc(text) + '</div>' +
-      '<svg class="pz-arrow" viewBox="0 0 220 56" width="220" height="56" style="' + (left ? 'transform:scaleX(-1)' : '') + '">' +
-      '<path d="M6 28 H170" stroke="#ff1a1a" stroke-width="13" stroke-linecap="round"/><path d="M160 4 L216 28 L160 52 Z" fill="#ff1a1a"/></svg>' +
+      P.arrowSvg(plan.arrow, plan.arrowColor, left) +
       '<div class="pz-rot"><span data-d="-8" title="หมุนทวนเข็ม">⟲</span><span data-d="8" title="หมุนตามเข็ม">⟳</span></div></div>';
   }
   function mid(pts) { return pts[Math.floor(pts.length / 2)]; }
@@ -472,8 +557,8 @@
   // ซูมให้เห็นทุกอย่าง (เว้นที่ให้หัวผัง ป้าย และกล่องคำอธิบาย)
   P.fit = function () {
     let all = linePts(mainKey());
-    if (isSafety()) all = all.concat((plan.devices || []).filter(has));
-    else all = all.concat(linePts('detour'));
+    all = all.concat((plan.devices || []).filter(has));
+    if (!isSafety()) all = all.concat(linePts('detour'));
     if (!all.length) return;
     const st = style();
     // ผังความปลอดภัย/ระบายน้ำ: ดันเนื้อหาขึ้นครึ่งบน เว้นมุมขวาล่างให้กล่องคำอธิบาย (รายการยาว)
@@ -491,6 +576,11 @@
     if (t === 'speed') d.text = prompt('ความเร็วที่จำกัด (กม./ชม.)', '60') || '60';
     if (t === 'arrow') d.text = confirm('ลูกศรชี้ขวา (ให้ชิดขวา)?\nกด "ยกเลิก" = ชี้ซ้าย') ? 'ชิดขวา' : 'ชิดซ้าย';
     if (t === 'end') d.text = 'สิ้นสุดเขต' + (plan.workType || 'งาน');
+    if (t === 'flood') {
+      const s = prompt('ชื่อจุดน้ำท่วม เช่น บ้านซ่น กม.233+100 (เว้นว่าง = ไม่แสดงข้อความ)', '');
+      if (s === null) return;
+      d.text = s.trim();
+    }
     plan.devices = plan.devices || [];
     plan.devices.push(d);
     if (t !== 'cone') P.startPlacing(null);

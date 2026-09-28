@@ -160,6 +160,30 @@ details.more .in{padding:0 14px 14px}
 .pz-lgi svg{width:34px;height:34px;display:block}
 .pz-legend.compact .pz-lg{font-size:22px;line-height:1.35}
 .tone-street .pz-map .leaflet-tile-pane{filter:saturate(1.25) brightness(1.03)}
+.arrow-prev{display:flex;gap:14px;justify-content:center;background:#9aa7b4;border-radius:8px;padding:10px}
+.arrow-prev .pz-arrow{width:130px;height:34px;margin:0}
+/* ตัวเลือกตรา (หน้าตั้งค่า) */
+.logo-opts{display:flex;gap:12px;flex-wrap:wrap}
+.logo-opt{display:flex;flex-direction:column;align-items:center;gap:6px;width:150px;padding:12px;border:2px solid var(--line);border-radius:10px;cursor:pointer;font-weight:600}
+.logo-opt.active{border-color:var(--acc);background:#eef5ff}
+.logo-opt.disabled{opacity:.5;cursor:not-allowed}
+.logo-opt input{position:absolute;opacity:0;pointer-events:none}
+.logo-opt img,.logo-none{width:96px;height:96px;object-fit:contain;display:flex;align-items:center;justify-content:center;font-size:12px;color:#888;text-align:center}
+/* กล่องข้อความที่ลากย้ายได้ */
+.pz-movable{pointer-events:auto!important;cursor:move;user-select:none;touch-action:none}
+.pz-movable:hover{outline:3px dashed rgba(21,101,192,.7);outline-offset:4px}
+body.printing-poster .pz-movable{outline:none!important}
+/* แบบหัวผัง */
+.pz-head{box-sizing:border-box}
+.hd-navy .pz-head{background:linear-gradient(90deg,#0b3a75,#1565c0)}
+.hd-navy .pz-org,.hd-navy .pz-sub{color:#fff}
+.hd-navy .pz-sub span{color:#ffd54a!important}
+.hd-navy .pz-head .pz-logo{background:#fff;border-radius:50%;padding:8px;box-sizing:border-box}
+.hd-yellow .pz-head{background:#ffc400;border-bottom:14px solid #111}
+.hd-yellow .pz-sub span{color:#c00!important}
+.hd-stripe .pz-head{border-bottom:22px solid;border-image:repeating-linear-gradient(-45deg,#111 0 28px,#ffc400 28px 56px) 22}
+.hd-line .pz-head{background:linear-gradient(#fff calc(100% - 24px),#0b3a75 calc(100% - 24px) calc(100% - 9px),#e01010 calc(100% - 9px))}
+.hd-line .pz-org{color:#0b3a75}
 .pz-sheet .leaflet-control-zoom a{width:60px;height:60px;line-height:60px;font-size:36px}
 .pz-sheet .leaflet-control-attribution{font-size:14px}
 .pz-sheet.placing .pz-map{cursor:crosshair}

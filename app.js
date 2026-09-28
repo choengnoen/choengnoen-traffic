@@ -223,7 +223,18 @@
         '<span style="margin-left:auto" class="flex"><button class="btn btn-sm btn-outline" id="edFit">⤢ ซูมพอดี</button><button class="btn btn-sm btn-outline" id="edLabels">↺ จัดป้ายใหม่</button></span>' +
       '</div><div class="ed-status no-print" id="edStatus"></div><div class="pz-stage" id="pzStage"></div>' +
       '<p class="hint no-print" id="edTips"></p></div></div>';
-    P.mount($('pzStage'), window.LOGO_DATA || 'logo.png');
+    P.logos = { old: window.LOGO_DATA || 'logo.png' };
+    if (window.LOGO_NEW_DATA) P.logos.new = window.LOGO_NEW_DATA;
+    P.logoDefault = logoPref();
+    P.mount($('pzStage'), P.logoSrc(null));
+    // กล่องกรอกข้อมูลด้านซ้าย สูงพอดีขอบล่างของผังตัวอย่าง (จอกว้างเท่านั้น จอแคบเรียงบน-ล่าง)
+    const edR = document.querySelector('.ed-right'), stg = $('pzStage');
+    const fitForm = function () {
+      const f = $('edForm'); if (!f) return;
+      f.style.maxHeight = window.innerWidth > 1100 ? Math.max(420, Math.round(stg.getBoundingClientRect().bottom - edR.getBoundingClientRect().top)) + 'px' : '';
+    };
+    const ro = new ResizeObserver(fitForm); ro.observe(edR); ro.observe(stg);
+    window.addEventListener('resize', fitForm);
     P.onBusy = status;
     P.onSelect = function (k) { if (k) status('ลากจุดวงกลมเพื่อปรับเส้น · คลิกบนเส้นเพื่อเพิ่มจุด · ดับเบิลคลิกจุดเพื่อลบ · คลิกที่ว่างเมื่อเสร็จ'); else status(''); };
     P.onPlaced = function () { renderPalette(); };
@@ -349,10 +360,8 @@
     h += '<button class="btn btn-primary btn-lg" id="edBuild" style="margin-top:10px">⚡ สร้างผังอัตโนมัติ</button><div id="edLens" class="hint" style="margin-top:6px"></div></div>';
 
     // อุปกรณ์
-    if (k !== 'flood') {
-      h += '<div class="card"><div class="section-title">🧰 ' + (k === 'drain' ? 'อุปกรณ์งานระบายน้ำ' : 'ป้ายและอุปกรณ์') + ' <span class="sub">เลือกแล้วคลิกบนผังเพื่อวาง · คลิกขวาที่ชิ้นเพื่อลบ · ดับเบิลคลิกแก้ข้อความ</span></div><div class="dev-palette" id="devPal"></div>' +
-        (k === 'safety' ? '<div class="flex" style="margin-top:8px"><button class="btn btn-sm btn-outline" id="devRe">↺ จัดวางอุปกรณ์ใหม่อัตโนมัติ</button><button class="btn btn-sm btn-danger" id="devClr">ล้างอุปกรณ์ทั้งหมด</button></div>' : '') + '</div>';
-    }
+    h += '<div class="card"><div class="section-title">🧰 ' + (k === 'drain' ? 'อุปกรณ์งานระบายน้ำ' : k === 'flood' ? 'จุดน้ำท่วมเพิ่มเติม / ป้ายและอุปกรณ์' : 'ป้ายและอุปกรณ์') + ' <span class="sub">เลือกแล้วคลิกบนผังเพื่อวาง' + (k === 'flood' ? ' (จุดน้ำท่วมวางได้หลายจุด)' : '') + ' · คลิกขวาที่ชิ้นเพื่อลบ · ดับเบิลคลิกแก้ข้อความ</span></div><div class="dev-palette" id="devPal"></div>' +
+      (k === 'safety' ? '<div class="flex" style="margin-top:8px"><button class="btn btn-sm btn-outline" id="devRe">↺ จัดวางอุปกรณ์ใหม่อัตโนมัติ</button><button class="btn btn-sm btn-danger" id="devClr">ล้างอุปกรณ์ทั้งหมด</button></div>' : '') + '</div>';
 
     // ปรับแต่งข้อความ
     h += '<details class="more"><summary>✏️ ปรับแต่งข้อความบนผัง</summary><div class="in"><div class="grid">' +
@@ -376,12 +385,25 @@
         fld('สายด่วน', 'hotline', { ph: 'โทร. 1586' }) + '</div>';
     }
     h += '</div></details>';
-    h += '<div class="card"><div class="grid grid-2">' + fld('พื้นหลังแผนที่', 'base', { type: 'select', options: [{ k: 'sat', n: 'ภาพดาวเทียม' }, { k: 'street', n: 'แผนที่ถนน' }] }) + '</div></div>';
+    h += '<div class="card"><div class="grid grid-2">' + fld('พื้นหลังแผนที่', 'base', { type: 'select', options: [{ k: 'sat', n: 'ภาพดาวเทียม' }, { k: 'street', n: 'แผนที่ถนน' }, { k: 'gmap', n: 'แผนที่แบบ Google (หมุดเฉพาะที่สำคัญ)' }] }) +
+      fld('แบบหัวผัง (แบบกรมทางหลวง)', 'head', { type: 'select', options: Object.keys(P.HEADS).map(function (x) { return { k: x, n: P.HEADS[x] }; }) }) +
+      fld('ตรากรมทางหลวง', 'logo', { type: 'select', options: [{ k: '', n: 'ตามค่าตั้งของเว็บ (' + (P.logoDefault === 'new' ? 'แบบใหม่' : 'แบบเดิม') + ')' }, { k: 'new', n: 'ตราแบบใหม่' + (P.logos.new ? '' : ' (ยังไม่มีไฟล์)') }, { k: 'old', n: 'ตราแบบเดิม' }] }) +
+      (k === 'flood' ? fld('รูปแบบลูกศรบอกทิศ', 'arrow', { type: 'select', options: Object.keys(P.ARROWS).map(function (x) { return { k: x, n: P.ARROWS[x].name }; }) }) +
+        fld('สีลูกศร', 'arrowColor', { type: 'select', options: Object.keys(P.ARROW_COLORS).map(function (x) { return { k: x, n: P.ARROW_COLORS[x] }; }) }) +
+        '<div class="span-all arrow-prev" id="arrPrev"></div>' : '') + '</div>' +
+      '<p class="hint">กล่อง "ขออภัยในความไม่สะดวก" และ "คำอธิบายสัญลักษณ์" ลากย้ายบนผังได้ · ดับเบิลคลิกที่กล่องเพื่อคืนตำแหน่งเดิม</p></div>';
     el.innerHTML = h;
     bindForm(el);
+    refreshArrPrev();
     renderPalette();
     refreshLens();
     $('edTips').textContent = 'ลากป้าย/ลูกศร/อุปกรณ์ไปวางได้ · คลิกที่เส้นแล้วลากจุดวงกลมเพื่อปรับเส้น (วิ่งตามถนนใหม่เอง) · เลื่อนหรือซูมแผนที่ได้ตามต้องการ แล้วกด "จัดป้ายใหม่" ถ้าป้ายหลุดกรอบ';
+  }
+
+  // ตัวอย่างลูกศรที่เลือก (ซ้าย / ขวา)
+  function refreshArrPrev() {
+    const b = $('arrPrev'); if (!b || !S.cur) return;
+    b.innerHTML = P.arrowSvg(S.cur.arrow, S.cur.arrowColor, true) + P.arrowSvg(S.cur.arrow, S.cur.arrowColor, false);
   }
 
   let drawTimer = null;
@@ -395,6 +417,7 @@
         setP(S.cur, path, v);
         markDirty();
         if (path === 'base') { P.setBase(v); P.draw(); return; }
+        if (path === 'arrow' || path === 'arrowColor') refreshArrPrev();
         clearTimeout(drawTimer); drawTimer = setTimeout(function () { P.draw(); }, 250);
       });
     });
@@ -516,7 +539,7 @@
 
   function renderPalette() {
     const box = $('devPal'); if (!box || !S.cur) return;
-    const list = S.cur.kind === 'drain' ? P.DEV_DRAIN : P.DEV_SAFETY;
+    const list = S.cur.kind === 'drain' ? P.DEV_DRAIN : S.cur.kind === 'flood' ? P.DEV_FLOOD : P.DEV_SAFETY;
     box.innerHTML = list.map(function (t) {
       return '<button class="dev-btn" data-dev="' + t + '">' + P.devSvg({ t: t, text: t === 'speed' ? '60' : t === 'arrow' ? 'ชิดขวา' : '' }) + '<span>' + P.DEV[t].name + '</span></button>';
     }).join('');
@@ -645,9 +668,23 @@
   }
 
   /* ======================= ตั้งค่า ======================= */
+  // ตราที่ใช้บนผัง (ค่าเริ่มต้นของเว็บ): เก็บในเบราว์เซอร์ · มีไฟล์ logo-new-data.js แล้วค่อยเลือกแบบใหม่ได้
+  function logoPref() {
+    let v = null;
+    try { v = localStorage.getItem('fdp_logo'); } catch (e) { /* ข้าม */ }
+    if (!window.LOGO_NEW_DATA) return 'old';
+    return v === 'old' ? 'old' : 'new';
+  }
   function renderSettings() {
-    const el = $('view-settings'), c = AI.config();
+    const el = $('view-settings'), c = AI.config(), lp = logoPref();
+    const logoOpt = function (k, src, name) {
+      return '<label class="logo-opt' + (lp === k ? ' active' : '') + (src ? '' : ' disabled') + '"><input type="radio" name="logoPref" value="' + k + '"' + (lp === k ? ' checked' : '') + (src ? '' : ' disabled') + '>' +
+        (src ? '<img src="' + src + '" alt="">' : '<span class="logo-none">ยังไม่มีไฟล์</span>') + '<span>' + name + '</span></label>';
+    };
     el.innerHTML =
+      '<div class="card" style="max-width:820px"><div class="section-title">🏛️ ตรากรมทางหลวงบนผัง <span class="sub">ค่าเริ่มต้นของทุกผัง · ผังแต่ละแผ่นเลือกเปลี่ยนเองได้ในหน้าแก้ไขผัง</span></div>' +
+      '<div class="logo-opts">' + logoOpt('new', window.LOGO_NEW_DATA, 'ตราแบบใหม่') + logoOpt('old', window.LOGO_DATA || 'logo.png', 'ตราแบบเดิม') + '</div>' +
+      (window.LOGO_NEW_DATA ? '' : '<p class="hint">ยังไม่มีไฟล์ตราแบบใหม่ — บันทึกรูปตราเป็นชื่อ <code>logo-new.png</code> (พื้นหลังโปร่งใส) ไว้ในโฟลเดอร์เดียวกับ index.html แล้วเปิดหน้านี้ใหม่</p>') + '</div>' +
       '<div class="card" style="max-width:820px"><div class="section-title">🤖 AI ผู้ช่วยกรอกข้อมูล (Claude) <span class="sub">เก็บเฉพาะในเบราว์เซอร์เครื่องนี้ ไม่บันทึกลงฐานข้อมูล</span></div>' +
       '<div class="alert warn">เมื่อกด "ให้ AI อ่าน" ข้อความและรูปที่แนบจะถูกส่งไปประมวลผลที่ Anthropic (ผู้ให้บริการ Claude) — ห้ามแนบเอกสารชั้นความลับหรือข้อมูลส่วนบุคคลอ่อนไหว และ AI อาจผิดพลาดได้ ต้องตรวจทุกครั้ง</div>' +
       '<div class="grid grid-2"><div class="field"><label>Anthropic API key</label>' + pwField('aiKey', 'off') + '<span class="hint">สร้างที่ console.anthropic.com (จ่ายตามการใช้งาน) · ไม่ใส่ก็ใช้ระบบได้ครบ ยกเว้นปุ่ม 🤖</span></div>' +
@@ -662,6 +699,14 @@
       '<p class="small" style="margin:0">ผังที่ไม่ใช้แล้ว: รายการผัง → ลบ (ย้ายไปถังขยะ) → ถังขยะ → ลบถาวร (เจ้าของระบบ/ผู้ดูแลระบบ)</p>' +
       (FBL.mode === 'demo' ? '<div class="flex" style="margin-top:10px"><button class="btn btn-danger" id="demoReset">ล้างข้อมูลทดลองทั้งหมด</button></div>' : '') + '</div>';
     bindPw(el);
+    el.querySelectorAll('input[name="logoPref"]').forEach(function (r) {
+      r.onchange = function () {
+        try { localStorage.setItem('fdp_logo', r.value); } catch (e) { /* ข้าม */ }
+        P.logoDefault = r.value;
+        el.querySelectorAll('.logo-opt').forEach(function (x) { x.classList.toggle('active', x.contains(r)); });
+        toast('ตั้งค่าตราแล้ว — ผังที่เลือก "ตามค่าตั้งของเว็บ" จะใช้ตรานี้');
+      };
+    });
     $('aiKey').value = c.key || '';
     $('aiSave').onclick = function () { AI.saveConfig({ key: $('aiKey').value.trim(), model: $('aiModel').value }); toast('บันทึกการตั้งค่า AI แล้ว'); };
     $('aiClear').onclick = function () { AI.clearConfig(); $('aiKey').value = ''; toast('ลบ key ออกจากเครื่องนี้แล้ว'); };
@@ -682,6 +727,16 @@
     };
     if ($('demoReset')) $('demoReset').onclick = function () { if (confirm('ล้างข้อมูลทดลองทั้งหมดในเครื่องนี้?')) { FBL.resetDemo(); location.reload(); } };
   }
+
+  // ตราแบบใหม่: วางไฟล์ logo-new.png ไว้ในโฟลเดอร์ระบบ แล้วระบบเปิดให้เลือกใช้เอง
+  const newLogo = new Image();
+  newLogo.onload = function () {
+    window.LOGO_NEW_DATA = 'logo-new.png';
+    P.logos.new = 'logo-new.png'; P.logoDefault = logoPref();
+    if (S.cur) P.draw();
+    if ($('view-settings') && $('view-settings').classList.contains('active')) renderSettings();
+  };
+  newLogo.src = 'logo-new.png';
 
   boot();
 })();
