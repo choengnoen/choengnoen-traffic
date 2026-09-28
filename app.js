@@ -7,7 +7,7 @@
   const $ = function (id) { return document.getElementById(id); };
   const esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   const P = window.Poster;
-  const S = { team: [], plans: [], cur: null, dirty: false, view: 'list', filter: 'all', q: '', trash: false, files: [] };
+  const S = { team: [], plans: [], cur: null, dirty: false, view: 'list', filter: 'all', q: '', trash: false, files: [], open: {} };
 
   const KIND = {
     flood:  { name: 'ผังทางเบี่ยงอุทกภัย', short: 'ทางเบี่ยงอุทกภัย', ic: '🌊', badge: 'b-info', desc: 'ภาพรวมช่วงน้ำท่วม + เส้นทางเบี่ยง (ระบบหาทางเบี่ยงที่ไม่ผ่านน้ำท่วมให้เอง) เลือกได้ 3 สไตล์' },
@@ -57,7 +57,7 @@
      จำชื่อจุดที่เคยลงพิกัดไว้ จากทุกผังของทีม (Firestore) + จุดที่เพิ่งกรอกในเครื่องนี้
      ครั้งต่อไปใส่แค่ชื่อ เช่น "แยกตะพง" ระบบเติมพิกัด (และ กม.) ให้เอง */
   const MEMO_KEY = 'tp_places_v1';
-  const PT_KEYS = ['flood', 'detour', 'zone', 'drain'];
+  const PT_KEYS = ['flood', 'detour', 'detour2', 'zone', 'drain'];
   function normName(s) { return String(s || '').toLowerCase().replace(/[\s.,:;\-–()（）'"“”]/g, ''); }
   function baseName(s) { return normName(s).replace(/^(ทางแยก|สี่แยก|สามแยก|แยก|วงเวียน|จุด)/, ''); }
   // ทุกคู่จุดต้น-ปลายของผัง (รวมช่วงน้ำท่วมเพิ่มเติม floods2)
@@ -126,14 +126,14 @@
 
   function newPlan(kind) {
     const p = { kind: kind, status: 'active', date: today(), org: 'แขวงทางหลวงระยอง', road: '', section: '', place: '', title: '', base: 'sat', pos: {}, view: null };
-    if (kind === 'flood') Object.assign(p, { style: 'doh', flood: { a: pt(), b: pt(), via: [] }, floods2: [], detour: { a: pt(), b: pt(), via: [] }, dirLeft: '', dirRight: '' });
+    if (kind === 'flood') Object.assign(p, { style: 'doh', flood: { a: pt(), b: pt(), via: [], depth: '' }, floods2: [], detour: { a: pt(), b: pt(), via: [] }, detour2: null, dirLeft: '', dirRight: '' });
     if (kind === 'safety') Object.assign(p, { workType: 'งานก่อสร้าง', speed: 90, side: 'left', both: false, zone: { a: pt(), b: pt(), via: [] }, devices: [] });
     if (kind === 'drain') Object.assign(p, { drain: { a: pt(), b: pt(), via: [] }, devices: [], waterLines: [] });
     return p;
   }
   function autoTitle(p) {
     const r = p.kind === 'flood' ? p.flood : p.kind === 'safety' ? p.zone : p.drain;
-    return [KIND[p.kind].short, p.kind === 'safety' ? p.workType : '', p.road ? 'ทล.' + p.road : '', p.place || (r && r.a && r.a.name) || '', thDate(p.date, true)].filter(Boolean).join(' · ');
+    return [KIND[p.kind].short, p.kind === 'safety' ? p.workType : '', P.roads(p).length ? 'ทล.' + P.roads(p).join(', ') : '', p.place || (r && r.a && r.a.name) || '', thDate(p.date, true)].filter(Boolean).join(' · ');
   }
   function titleOf(p) { return p.title || autoTitle(p); }
 
@@ -304,14 +304,6 @@
     if (window.LOGO_NEW_DATA) P.logos.new = window.LOGO_NEW_DATA;
     P.logoDefault = logoPref();
     P.mount($('pzStage'), P.logoSrc(null));
-    // กล่องกรอกข้อมูลด้านซ้าย สูงพอดีขอบล่างของผังตัวอย่าง (จอกว้างเท่านั้น จอแคบเรียงบน-ล่าง)
-    const edR = document.querySelector('.ed-right'), stg = $('pzStage');
-    const fitForm = function () {
-      const f = $('edForm'); if (!f) return;
-      f.style.maxHeight = window.innerWidth > 1100 ? Math.max(420, Math.round(stg.getBoundingClientRect().bottom - edR.getBoundingClientRect().top)) + 'px' : '';
-    };
-    const ro = new ResizeObserver(fitForm); ro.observe(edR); ro.observe(stg);
-    window.addEventListener('resize', fitForm);
     P.onBusy = status;
     P.onSelect = function (k) { if (k) status('ลากจุดวงกลมเพื่อปรับเส้น · คลิกบนเส้นเพื่อเพิ่มจุด · ดับเบิลคลิกจุดเพื่อลบ · คลิกที่ว่างเมื่อเสร็จ'); else status(''); };
     P.onPlaced = function () { renderPalette(); };
@@ -373,7 +365,29 @@
       '<div class="grid"><div class="field"><input data-k="' + path + '.name" list="tpPlaces" autocomplete="off" value="' + esc(p.name || '') + '" placeholder="' + esc(phName || 'ชื่อจุด เช่น แยกตะพง') + '"></div>' +
       '<div class="field"><input data-k="' + path + '.km" value="' + esc(p.km || '') + '" placeholder="กม. เช่น 229+768"></div>' +
       '<div class="field span-all"><div class="pt-ll"><input data-ll="' + path + '" value="' + esc(ll) + '" placeholder="พิกัด 12.77, 101.71 หรือวางลิงก์ Google Maps">' +
-      '<button class="btn btn-sm btn-outline" data-pick="' + path + '" title="คลิกเลือกตำแหน่งบนแผนที่">📍</button></div></div></div></div>';
+      '<button class="btn btn-sm btn-outline" data-pick="' + path + '" data-label="' + esc(label) + '" title="คลิกเลือกตำแหน่งบนแผนที่">📍</button></div></div></div></div>';
+  }
+  // ช่องพิกัดแบบย่อ (ใช้ในการ์ดจุดน้ำท่วม)
+  function llField(path, label) {
+    const p = getP(S.cur, path) || pt();
+    return '<div class="field ll-f"><label>' + esc(label) + '<span class="' + (P.has(p) ? 'pt-ok' : 'pt-bad') + '" data-okfor="' + path + '">' + (P.has(p) ? '✓ มีพิกัด' : 'ยังไม่มีพิกัด') + '</span></label>' +
+      '<div class="pt-ll"><input data-ll="' + path + '" value="' + esc(P.has(p) ? p.lat + ', ' + p.lng : '') + '" placeholder="12.8123, 101.2345 หรือลิงก์ Google Maps">' +
+      '<button class="btn btn-sm btn-outline" data-pick="' + path + '" data-label="' + esc(label) + '" title="คลิกเลือกตำแหน่งบนแผนที่">📍</button></div></div>';
+  }
+  // การ์ดจุดน้ำท่วม: i = 0 คือ plan.flood · i ≥ 1 คือ plan.floods2[i-1]
+  function segCard(i) {
+    const main = i === 0, b = main ? 'flood' : 'floods2.' + (i - 1);
+    const s = getP(S.cur, b);
+    if (s.depth == null) s.depth = '';
+    const canDel = !main || (S.cur.floods2 || []).length;
+    // สายทาง: จุดที่ 1 = สายทางหลักของผัง · จุดอื่นเว้นว่าง = สายทางเดียวกับจุดที่ 1 (ใส่ต่างได้ = หลายสายทางในผังเดียว)
+    const same = S.cur.road ? 'เว้นว่าง = ทล.' + S.cur.road : '';
+    return '<div class="seg"><div class="seg-h">🌊 จุดน้ำท่วมที่ ' + (i + 1) + (canDel ? '<button type="button" class="btn btn-sm btn-danger" data-fxdel="' + i + '">ลบจุดนี้</button>' : '') + '</div>' +
+      '<div class="grid grid-2" style="margin-bottom:6px">' + fld('หมายเลขทางหลวง', main ? 'road' : b + '.road', { ph: main ? 'เช่น 3574' : same || 'เช่น 3574' }) +
+      fld('ตอนควบคุม', main ? 'section' : b + '.section', { ph: main ? 'เช่น บ้านค่าย-ระยอง' : (same ? 'เว้นว่าง = ' + (S.cur.section || 'ตอนเดียวกับจุดที่ 1') : 'เช่น บ้านค่าย-ระยอง') }) + '</div>' +
+      '<div class="grid grid-3">' + fld('กม. เริ่ม', b + '.a.km', { ph: 'เช่น 44+000' }) + fld('กม. สิ้นสุด', b + '.b.km', { ph: 'เช่น 46+000' }) + fld('ระดับน้ำ (ซม.)', b + '.depth', { type: 'number', ph: 'เช่น 30' }) + '</div>' +
+      '<div class="grid grid-2" style="margin-top:6px">' + llField(b + '.a', 'พิกัดจุดเริ่ม') + llField(b + '.b', main ? 'พิกัดจุดสิ้นสุด' : 'พิกัดจุดสิ้นสุด (ไม่ใส่ = หมุดจุดเดียว)') + '</div>' +
+      '<div style="margin-top:6px">' + fld('ชื่อบริเวณ (ไม่บังคับ แสดงบนผัง)', main ? 'place' : b + '.place', { ph: 'เช่น หน้าวัดบ้านค่าย' }) + '</div></div>';
   }
   function styleCards() {
     const cur = S.cur.style || 'doh';
@@ -390,7 +404,7 @@
     const el = $('edForm');
     const p = S.cur;
     if (!p) {
-      el.innerHTML = '<div class="card"><div class="section-title">เลือกชนิดผังที่จะสร้าง</div>' + Object.keys(KIND).map(function (k) {
+      el.innerHTML = '<div class="card wide"><div class="section-title">เลือกชนิดผังที่จะสร้าง</div>' + Object.keys(KIND).map(function (k) {
         return '<button class="new-card" style="width:100%;margin-bottom:8px" data-new="' + k + '"><span class="ic">' + KIND[k].ic + '</span><div><b>' + KIND[k].name + '</b><span>' + KIND[k].desc + '</span></div></button>';
       }).join('') + '</div>';
       el.querySelectorAll('[data-new]').forEach(function (b) { b.onclick = function () { openPlan(newPlan(b.dataset.new)); }; });
@@ -398,99 +412,118 @@
       return;
     }
     const k = p.kind;
-    let h = '<div class="card"><div class="section-title">' + KIND[k].ic + ' ' + KIND[k].name + (p.id ? '' : ' <span class="badge b-warn">ผังใหม่ ยังไม่บันทึก</span>') + '</div>' +
-      '<div class="grid grid-2">' + fld('วันที่', 'date', { type: 'date' }) + fld('สถานะ', 'status', { type: 'select', options: [{ k: 'active', n: 'ใช้งานอยู่' }, { k: 'ended', n: 'สิ้นสุดแล้ว' }] }) + '</div></div>';
+    const sec = function (id, title, body, cls) {   // ส่วนพับเก็บได้ (จำว่าเปิด/ปิดไว้)
+      return '<details class="more ' + (cls || 'wide') + '" data-sec="' + id + '"' + (S.open[id] ? ' open' : '') + '><summary>' + title + '</summary><div class="in">' + body + '</div></details>';
+    };
+    let h = '<div class="card wide"><div class="section-title">' + KIND[k].ic + ' ' + KIND[k].name + (p.id ? '' : ' <span class="badge b-warn">ผังใหม่ ยังไม่บันทึก</span>') +
+      '<span class="flex" style="margin-left:auto;font-family:Sarabun,sans-serif;font-weight:400">' + fld('วันที่', 'date', { type: 'date' }) + fld('สถานะ', 'status', { type: 'select', options: [{ k: 'active', n: 'ใช้งานอยู่' }, { k: 'ended', n: 'สิ้นสุดแล้ว' }] }) + '</span></div>' +
+      (k === 'flood' ? '<p class="hint" style="margin:0">ขั้นตอน: ① ใส่สายทางและจุดน้ำท่วม (วางข้อความทีเดียวหลายจุดได้) → ② ใส่ทางเบี่ยง → ③ กด ⚡ สร้างผัง · ผังตัวอย่างอยู่ด้านล่าง</p>' : '') + '</div>';
 
-    // ผู้ช่วยกรอกข้อมูล
-    h += '<div class="card"><div class="section-title">🤖 ผู้ช่วยกรอกข้อมูล <span class="sub">วางข้อความ/ลิงก์ หรือแนบรูป แล้วให้ระบบกรอกให้</span></div>' +
-      '<div class="field"><textarea id="aiText" rows="4" placeholder="' + esc(k === 'flood'
+    // ผู้ช่วย AI (พับเก็บ)
+    const aiBody = '<div class="field"><textarea id="aiText" rows="4" placeholder="' + esc(k === 'flood'
         ? 'เช่น น้ำท่วมทาง ทล.3 ตอน ระยอง-กะเฉด บริเวณบ้านซ่น-ตำนานป่า กม.233+100 (12.6386, 101.3783) ถึง กม.236+700 (12.6397, 101.4006)\nทางเบี่ยง แยกตะพง กม.229+768 12.6461,101.3441 ถึง แยกศาลาสังสี กม.239+710 12.6410,101.4222'
         : k === 'safety' ? 'เช่น งานก่อสร้าง ทล.3 กม.233+100 (12.6386,101.3783) ถึง กม.233+500 (12.6389,101.3841) ปิดช่องซ้าย'
           : 'เช่น น้ำท่วมขังหน้าตลาด ทล.3 กม.234+200 พิกัด 12.6398, 101.3854') + '"></textarea></div>' +
       '<div class="ai-drop" id="aiDrop">📎 แนบรูป (ภาพหน้าจอ LINE / แผนที่ / หนังสือ) — คลิก ลากไฟล์มาวาง หรือกด Ctrl+V ในช่องข้อความ<input type="file" id="aiFile" accept="image/*" multiple hidden><div class="ai-files" id="aiFiles"></div></div>' +
       '<div class="flex" style="margin-top:8px"><button class="btn btn-primary btn-sm" id="aiRun">🤖 ให้ AI อ่าน</button><button class="btn btn-outline btn-sm" id="aiLocal">อ่านเอง (ไม่ใช้ AI)</button></div>' +
-      (AI.ready() ? '' : '<p class="hint" style="margin:6px 0 0">ยังไม่ได้ตั้งค่า AI — ใช้ "อ่านเอง" ได้ (อ่านพิกัด/กม. จากข้อความ) หรือใส่ API key ที่หน้าตั้งค่า</p>') + '</div>';
+      (AI.ready() ? '' : '<p class="hint" style="margin:6px 0 0">ยังไม่ได้ตั้งค่า AI — ใช้ "อ่านเอง" ได้ (อ่านพิกัด/กม. จากข้อความ) หรือใส่ API key ที่หน้าตั้งค่า</p>');
+    const aiSec = sec('ai', '🤖 ผู้ช่วยกรอกข้อมูลด้วย AI / อ่านจากรูป <span class="muted small">(ไม่บังคับ)</span>', aiBody);
 
-    // ข้อมูลหลัก
-    h += '<div class="card"><div class="section-title">📍 ข้อมูลผัง</div><div class="grid grid-2">' +
-      fld('ทางหลวงหมายเลข', 'road', { ph: 'เช่น 3' }) +
-      (k === 'safety' ? fld('ประเภทงาน', 'workType', { type: 'select', options: WORK.indexOf(p.workType) >= 0 ? WORK : WORK.concat([p.workType]) }) : fld('ตอนควบคุม', 'section', { ph: 'เช่น ระยอง-กะเฉด' })) +
-      fld(k === 'drain' ? 'ชื่อบริเวณน้ำท่วมขัง' : 'ชื่อบริเวณ', 'place', { cls: 'span-all', ph: k === 'flood' ? 'เช่น บ้านซ่น - ตำนานป่า' : 'เช่น หน้าตลาดบ้านเพ' }) + '</div>';
+    // ข้อมูลหลัก + ปุ่มสร้างผัง
+    const buildRow = '<div class="card wide"><div class="build-row"><button class="btn btn-primary btn-lg" id="edBuild">⚡ ' + (k === 'flood' ? '③ ' : '') + 'สร้างผังอัตโนมัติ</button><div id="edLens" class="hint"></div></div></div>';
     if (k === 'flood') {
-      h += '<div class="sub-t section-title" style="font-size:14px;margin:12px 0 6px">ช่วงน้ำท่วม</div>' + ptRow('flood.a', 'จุดเริ่มน้ำท่วม', 'ชื่อ (ไม่ใส่ก็ได้)') + ptRow('flood.b', 'จุดสิ้นสุดน้ำท่วม', 'ชื่อ (ไม่ใส่ก็ได้)') +
-        (p.floods2 || []).map(function (s, i) {
-          const b = 'floods2.' + i;
-          return '<div style="border:1px dashed #e01010;border-radius:8px;padding:8px 10px;margin:10px 0">' +
-            '<div class="flex" style="margin-bottom:4px"><b style="color:#e01010">🌊 ช่วงน้ำท่วมที่ ' + (i + 2) + '</b><button type="button" class="btn btn-sm btn-danger" data-fxdel="' + i + '" style="margin-left:auto">ลบช่วงนี้</button></div>' +
-            fld('ชื่อบริเวณ (แสดงบนผัง ไม่ใส่ก็ได้)', b + '.place', { ph: 'เช่น หน้าวัดบ้านเพ' }) +
-            ptRow(b + '.a', 'จุดเริ่มน้ำท่วม', 'ชื่อ (ไม่ใส่ก็ได้)') + ptRow(b + '.b', 'จุดสิ้นสุดน้ำท่วม (ไม่ใส่ = เป็นหมุดจุดเดียว)', 'ชื่อ (ไม่ใส่ก็ได้)') + '</div>';
-        }).join('') +
-        '<button type="button" class="btn btn-sm btn-outline" id="fxAdd" style="margin:6px 0">+ เพิ่มช่วงน้ำท่วม (เส้น + กม.)</button>' +
-        '<div class="section-title" style="font-size:14px;margin:12px 0 6px">ทางเบี่ยง</div>' + ptRow('detour.a', 'จุดแยกออก (เข้าทางเบี่ยง)') + ptRow('detour.b', 'จุดกลับเข้าทางหลัก') +
-        '<div class="grid grid-2">' + fld('ลูกศรฝั่งซ้ายของผัง', 'dirLeft', { ph: 'เช่น ไประยอง' }) + fld('ลูกศรฝั่งขวาของผัง', 'dirRight', { ph: 'เช่น ไปแกลง' }) + '</div>' +
-        '<div class="section-title" style="font-size:14px;margin:14px 0 6px">สไตล์ผัง</div>' + styleCards();
+      const n = 1 + (p.floods2 || []).length;
+      const nr = P.roads(p).length;
+      h += '<div class="card"><div class="section-title"><span class="step-no">1</span> จุดน้ำท่วม <span class="sub">' + n + ' จุด' + (nr > 1 ? ' · ' + nr + ' สายทาง' : '') + ' — แต่ละจุดอยู่คนละสายทางได้</span></div>' +
+        '<div class="field paste-box" style="margin:0 0 10px"><label>📥 วางข้อมูลจุดน้ำท่วม (ใส่ได้หลายจุดพร้อมกัน ระบบแยกให้เอง)</label><textarea id="fxPaste" placeholder="' + esc(
+          'หมายเลขทางหลวง: 3574 ตอนควบคุม บ้านค่าย - ระยอง ช่วง กม.: 44+000 ถึง กม.: 46+000 ระดับน้ำ: 30 เซ็นติเมตร\nเริ่ม 12.8123, 101.2345  สิ้นสุด 12.8012, 101.2456\nหมายเลขทางหลวง: 3574 ตอนควบคุม บ้านค่าย - ระยอง ช่วง กม.: 48+500 ถึง กม.: 49+200 ระดับน้ำ: 20 เซ็นติเมตร\nเริ่ม ...  สิ้นสุด ...\nหมายเลขทางหลวง: 3 ตอนควบคุม ... (คนละสายทางในผังเดียวกันได้)\nทางเบี่ยง เริ่ม 12.83, 101.22 ถึง 12.79, 101.27') + '"></textarea>' +
+        '<div class="flex" style="margin-top:6px"><button type="button" class="btn btn-sm btn-primary" id="fxRead">อ่านข้อมูลใส่ให้</button><span class="hint">พิกัดคู่แรกของแต่ละจุด = จุดเริ่ม คู่ที่สอง = จุดสิ้นสุด</span></div></div>' +
+        segCard(0) + (p.floods2 || []).map(function (s, i) { return segCard(i + 1); }).join('') +
+        '<button type="button" class="btn btn-sm btn-outline" id="fxAdd">+ เพิ่มจุดน้ำท่วม</button></div>';
+      h += '<div class="card"><div class="section-title"><span class="step-no">2</span> ทางเบี่ยง <span class="sub">ระบบหาเส้นทางที่ไม่ผ่านจุดน้ำท่วมทุกจุดให้เอง</span></div>' +
+        '<div class="seg det"><div class="seg-h">🔵 ทางเบี่ยงที่ 1</div>' + ptRow('detour.a', 'จุดแยกออก (เข้าทางเบี่ยง)') + ptRow('detour.b', 'จุดกลับเข้าทางหลัก') + '</div>' +
+        (p.detour2
+          ? '<div class="seg det2"><div class="seg-h">🟣 ทางเบี่ยงที่ 2 <button type="button" class="btn btn-sm btn-danger" id="det2Del">ลบทางเบี่ยงที่ 2</button></div>' + ptRow('detour2.a', 'จุดแยกออก (เข้าทางเบี่ยงที่ 2)') + ptRow('detour2.b', 'จุดกลับเข้าทางหลัก') + '</div>'
+          : '<button type="button" class="btn btn-sm btn-outline" id="det2Add" style="margin-bottom:10px">+ เพิ่มทางเบี่ยงที่ 2</button>') +
+        '<div class="grid grid-2">' + fld('ลูกศรฝั่งซ้ายของผัง', 'dirLeft', { ph: 'เช่น ไปบ้านค่าย' }) + fld('ลูกศรฝั่งขวาของผัง', 'dirRight', { ph: 'เช่น ไประยอง' }) + '</div></div>';
+      h += buildRow;
+    } else {
+      h += '<div class="card"><div class="section-title">📍 ข้อมูลผัง</div><div class="grid grid-2">' +
+        fld('ทางหลวงหมายเลข', 'road', { ph: 'เช่น 3' }) +
+        (k === 'safety' ? fld('ประเภทงาน', 'workType', { type: 'select', options: WORK.indexOf(p.workType) >= 0 ? WORK : WORK.concat([p.workType]) }) : fld('ตอนควบคุม', 'section', { ph: 'เช่น ระยอง-กะเฉด' })) +
+        fld(k === 'drain' ? 'ชื่อบริเวณน้ำท่วมขัง' : 'ชื่อบริเวณ', 'place', { cls: 'span-all', ph: 'เช่น หน้าตลาดบ้านเพ' }) + '</div></div><div class="card">';
+      if (k === 'safety') {
+        h += '<div class="section-title" style="font-size:14px;margin:0 0 6px">เขตปฏิบัติงาน (ตามทิศทางรถวิ่ง)</div>' + ptRow('zone.a', 'ต้นเขตงาน (รถวิ่งเข้ามาถึงก่อน)', 'ชื่อ (ไม่ใส่ก็ได้)') + ptRow('zone.b', 'ปลายเขตงาน', 'ชื่อ (ไม่ใส่ก็ได้)') +
+          '<div class="grid grid-2">' + fld('ความเร็วปกติของถนน (กม./ชม.)', 'speed', { type: 'select', options: [{ k: 60, n: '60' }, { k: 80, n: '80' }, { k: 90, n: '90' }, { k: 100, n: '100' }, { k: 120, n: '120' }] }) +
+          fld('ช่องจราจรที่ปิด', 'side', { type: 'select', options: [{ k: 'left', n: 'ช่องซ้าย (ชิดไหล่ทาง)' }, { k: 'right', n: 'ช่องขวา (ชิดเกาะกลาง)' }] }) +
+          fld('ถนน 2 ช่องจราจรสวนกัน (วางป้ายให้รถทั้งสองทิศทาง)', 'both', { type: 'checkbox', cls: 'span-all' }) + '</div>' +
+          '<p class="hint">ระยะป้ายเตือนและช่วงเบี่ยงกรวยคำนวณจากความเร็ว (ปรับตำแหน่งเองได้ทุกชิ้น) — ต้องตรวจกับมาตรฐานกรมทางหลวงก่อนใช้งานจริง</p>';
+      }
+      if (k === 'drain') {
+        h += ptRow('drain.a', 'จุดน้ำท่วมขัง', 'ชื่อจุด เช่น หน้าตลาดบ้านเพ') +
+          '<details class="more" style="margin:6px 0"><summary>กำหนดจุดระบายเอง (ไม่บังคับ)</summary><div class="in">' + ptRow('drain.b', 'จุดระบายน้ำออก', 'ชื่อ เช่น คลองน้ำเค็ม') + '<p class="hint">เว้นว่างไว้ = ให้ระบบหาทางน้ำที่น้ำไหลไปถึงเอง</p></div></details>' +
+          (p.drainNote ? '<div class="alert warn">' + esc(p.drainNote) + '</div>' : '') +
+          '<p class="hint">ระบบใช้ข้อมูลความสูงพื้นดิน (SRTM ~30 ม.) และทางน้ำจาก OpenStreetMap ใช้ช่วยวางแนวเบื้องต้น ต้องสำรวจระดับจริงก่อนดำเนินการ</p>';
+      }
+      h += '</div>' + buildRow;
     }
-    if (k === 'safety') {
-      h += '<div class="section-title" style="font-size:14px;margin:12px 0 6px">เขตปฏิบัติงาน (ตามทิศทางรถวิ่ง)</div>' + ptRow('zone.a', 'ต้นเขตงาน (รถวิ่งเข้ามาถึงก่อน)', 'ชื่อ (ไม่ใส่ก็ได้)') + ptRow('zone.b', 'ปลายเขตงาน', 'ชื่อ (ไม่ใส่ก็ได้)') +
-        '<div class="grid grid-2">' + fld('ความเร็วปกติของถนน (กม./ชม.)', 'speed', { type: 'select', options: [{ k: 60, n: '60' }, { k: 80, n: '80' }, { k: 90, n: '90' }, { k: 100, n: '100' }, { k: 120, n: '120' }] }) +
-        fld('ช่องจราจรที่ปิด', 'side', { type: 'select', options: [{ k: 'left', n: 'ช่องซ้าย (ชิดไหล่ทาง)' }, { k: 'right', n: 'ช่องขวา (ชิดเกาะกลาง)' }] }) +
-        fld('ถนน 2 ช่องจราจรสวนกัน (วางป้ายให้รถทั้งสองทิศทาง)', 'both', { type: 'checkbox', cls: 'span-all' }) + '</div>' +
-        '<p class="hint">ระยะป้ายเตือนและช่วงเบี่ยงกรวยคำนวณจากความเร็ว (ปรับตำแหน่งเองได้ทุกชิ้น) — ต้องตรวจกับมาตรฐานกรมทางหลวงก่อนใช้งานจริง</p>';
-    }
-    if (k === 'drain') {
-      h += ptRow('drain.a', 'จุดน้ำท่วมขัง', 'ชื่อจุด เช่น หน้าตลาดบ้านเพ') +
-        '<details class="more" style="margin:6px 0"><summary>กำหนดจุดระบายเอง (ไม่บังคับ)</summary><div class="in">' + ptRow('drain.b', 'จุดระบายน้ำออก', 'ชื่อ เช่น คลองน้ำเค็ม') + '<p class="hint">เว้นว่างไว้ = ให้ระบบหาทางน้ำที่น้ำไหลไปถึงเอง</p></div></details>' +
-        (p.drainNote ? '<div class="alert warn">' + esc(p.drainNote) + '</div>' : '') +
-        '<p class="hint">ระบบใช้ข้อมูลความสูงพื้นดิน (SRTM ~30 ม.) และทางน้ำจาก OpenStreetMap ใช้ช่วยวางแนวเบื้องต้น ต้องสำรวจระดับจริงก่อนดำเนินการ</p>';
-    }
-    h += '<button class="btn btn-primary btn-lg" id="edBuild" style="margin-top:10px">⚡ สร้างผังอัตโนมัติ</button><div id="edLens" class="hint" style="margin-top:6px"></div></div>';
 
-    // อุปกรณ์
-    h += '<div class="card"><div class="section-title">🧰 ' + (k === 'drain' ? 'อุปกรณ์งานระบายน้ำ' : k === 'flood' ? 'หมุดน้ำท่วม / ป้ายและอุปกรณ์' : 'ป้ายและอุปกรณ์') + ' <span class="sub">เลือกแล้วคลิกบนผังเพื่อวาง' + (k === 'flood' ? ' (ถ้าต้องการเส้น + กม. ใช้ปุ่ม "+ เพิ่มช่วงน้ำท่วม" ด้านบน)' : '') + ' · คลิกขวาที่ชิ้นเพื่อลบ · ดับเบิลคลิกแก้ข้อความ</span></div><div class="dev-palette" id="devPal"></div>' +
-      (k === 'safety' ? '<div class="flex" style="margin-top:8px"><button class="btn btn-sm btn-outline" id="devRe">↺ จัดวางอุปกรณ์ใหม่อัตโนมัติ</button><button class="btn btn-sm btn-danger" id="devClr">ล้างอุปกรณ์ทั้งหมด</button></div>' : '') + '</div>';
-
-    // ปรับแต่งข้อความ
-    h += '<details class="more"><summary>✏️ ปรับแต่งข้อความบนผัง</summary><div class="in"><div class="grid">' +
-      fld('หน่วยงาน (หัวผัง)', 'org') +
-      fld('หัวเรื่องบรรทัดที่ 2 (เว้นว่าง = สร้างให้อัตโนมัติ)', 'headline', { ph: P.autoHeadline(p) }) +
-      fld('ข้อความขออภัย', 'apology', { ph: 'ขออภัยในความไม่สะดวก' }) +
-      (k === 'flood' ? fld('คำอธิบายเส้นสีแดง', 'legendFlood', { ph: 'บริเวณที่น้ำท่วมทาง' }) + fld('คำอธิบายเส้นสีน้ำเงิน', 'legendDetour', { ph: 'เส้นทางเบี่ยงการจราจร' }) : '') +
-      (k === 'safety' ? fld('คำอธิบายเขตงาน', 'legendZone', { ph: 'เขตปฏิบัติงาน / ช่องจราจรที่ปิด' }) : '') +
-      (k === 'drain' ? fld('คำอธิบายแนวระบายน้ำ', 'legendDrain', { ph: 'แนวทางระบายน้ำ' }) : '') +
-      fld('ชื่อผัง (ใช้ในรายการ/ชื่อไฟล์)', 'title', { ph: autoTitle(p) }) +
-      '</div>';
-    if (k === 'flood') {
-      h += '<div class="section-title" style="font-size:14px;margin:12px 0 6px">แบบเตือนภัย (แนวตั้ง)</div><div class="grid">' +
-        fld('บรรทัดที่ 1', 'alert1', { ph: 'หลีกเลี่ยงเส้นทางน้ำท่วม' }) + fld('บรรทัดที่ 2 (สีเหลือง)', 'alert2', { ph: P.autoAlert2(p) }) + fld('บรรทัดที่ 3', 'alert3', { ph: 'ทั้งฝั่งขาเข้าและขาออก' }) +
-        fld('กล่องเขียว', 'callGo', { ph: 'เส้นทางหลีกเลี่ยงน้ำท่วม' }) + fld('กล่องแดง (บรรทัดล่าง)', 'callNo', { ph: 'บริเวณ' + (p.place || '...') + ' น้ำท่วม' }) + '</div>' +
-        '<div class="section-title" style="font-size:14px;margin:12px 0 6px">แบบอินโฟกราฟิก</div><div class="grid grid-2">' +
-        fld('หัวเรื่อง (สีขาว)', 'info1', { ph: 'เส้นทางเลี่ยงน้ำท่วม' }) + fld('หัวเรื่อง (สีเหลือง)', 'info2', { ph: p.road ? 'ทล.' + p.road : '' }) +
-        fld('คำขวัญใต้หัวเรื่อง', 'infoSub', { cls: 'span-all', ph: '“โปรดตรวจสอบเส้นทางก่อนออกเดินทาง และขับขี่ด้วยความระมัดระวัง”' }) +
-        fld('ขั้นตอนการเดินทาง (1 บรรทัด = 1 ข้อ)', 'steps', { type: 'textarea', rows: 4, cls: 'span-all', ph: P.autoSteps(p) }) +
-        fld('ข้อควรทราบ (1 บรรทัด = 1 ข้อ)', 'notes', { type: 'textarea', rows: 4, cls: 'span-all', ph: P.autoNotes(p) }) +
-        fld('สายด่วน', 'hotline', { ph: 'โทร. 1586' }) + '</div>';
-    }
-    h += '</div></details>';
-    h += '<div class="card"><div class="grid grid-2">' + fld('พื้นหลังแผนที่', 'base', { type: 'select', options: [{ k: 'sat', n: 'ภาพดาวเทียม' }, { k: 'street', n: 'แผนที่ถนน' }, { k: 'gmap', n: 'แผนที่แบบ Google (หมุดเฉพาะที่สำคัญ)' }] }) +
+    // รูปแบบผัง
+    let look = (k === 'flood' ? '<div class="section-title" style="font-size:14px;margin:0 0 6px">สไตล์ผัง</div>' + styleCards() : '') +
+      '<div class="grid grid-3" style="margin-top:10px">' + fld('พื้นหลังแผนที่', 'base', { type: 'select', options: [{ k: 'sat', n: 'ภาพดาวเทียม' }, { k: 'street', n: 'แผนที่ถนน' }, { k: 'gmap', n: 'แผนที่แบบ Google (หมุดเฉพาะที่สำคัญ)' }] }) +
       fld('แบบหัวผัง (แบบกรมทางหลวง)', 'head', { type: 'select', options: Object.keys(P.HEADS).map(function (x) { return { k: x, n: P.HEADS[x] }; }) }) +
       fld('ตรากรมทางหลวง', 'logo', { type: 'select', options: [{ k: '', n: 'ตามค่าตั้งของเว็บ (' + (P.logoDefault === 'new' ? 'แบบใหม่' : 'แบบเดิม') + ')' }, { k: 'new', n: 'ตราแบบใหม่' + (P.logos.new ? '' : ' (ยังไม่มีไฟล์)') }, { k: 'old', n: 'ตราแบบเดิม' }] }) +
       (k === 'flood' ? fld('รูปแบบลูกศรบอกทิศ', 'arrow', { type: 'select', options: Object.keys(P.ARROWS).map(function (x) { return { k: x, n: P.ARROWS[x].name }; }) }) +
         fld('สีลูกศร', 'arrowColor', { type: 'select', options: Object.keys(P.ARROW_COLORS).map(function (x) { return { k: x, n: P.ARROW_COLORS[x] }; }) }) +
         '<div class="span-all arrow-prev" id="arrPrev"></div>' : '') + '</div>' +
-      '<p class="hint">กล่อง "ขออภัยในความไม่สะดวก" และ "คำอธิบายสัญลักษณ์" ลากย้ายบนผังได้ · ดับเบิลคลิกที่กล่องเพื่อคืนตำแหน่งเดิม</p></div>';
+      '<p class="hint">กล่อง "ขออภัยในความไม่สะดวก" และ "คำอธิบายสัญลักษณ์" ลากย้ายบนผังได้ · ดับเบิลคลิกที่กล่องเพื่อคืนตำแหน่งเดิม</p>';
+    h += sec('look', '🎨 รูปแบบผัง / พื้นหลังแผนที่ / ลูกศร', look);
+
+    // อุปกรณ์
+    h += sec('dev', '🧰 ' + (k === 'drain' ? 'อุปกรณ์งานระบายน้ำ' : k === 'flood' ? 'หมุดน้ำท่วม / ป้ายและอุปกรณ์ วางเพิ่มบนผัง' : 'ป้ายและอุปกรณ์'),
+      '<p class="hint" style="margin-top:0">เลือกแล้วคลิกบนผังเพื่อวาง · คลิกขวาที่ชิ้นเพื่อลบ · ดับเบิลคลิกแก้ข้อความ</p><div class="dev-palette" id="devPal"></div>' +
+      (k === 'safety' ? '<div class="flex" style="margin-top:8px"><button class="btn btn-sm btn-outline" id="devRe">↺ จัดวางอุปกรณ์ใหม่อัตโนมัติ</button><button class="btn btn-sm btn-danger" id="devClr">ล้างอุปกรณ์ทั้งหมด</button></div>' : ''),
+      k === 'flood' ? 'wide' : '');
+
+    // ปรับแต่งข้อความ
+    let tx = '<div class="grid grid-2">' +
+      fld('หน่วยงาน (หัวผัง)', 'org') +
+      fld('หัวเรื่องบรรทัดที่ 2 (เว้นว่าง = สร้างให้อัตโนมัติ)', 'headline', { ph: P.autoHeadline(p) }) +
+      fld('ข้อความขออภัย', 'apology', { ph: 'ขออภัยในความไม่สะดวก' }) +
+      (k === 'flood' ? fld('คำอธิบายเส้นสีแดง', 'legendFlood', { ph: 'บริเวณที่น้ำท่วมทาง' }) + fld('คำอธิบายเส้นสีน้ำเงิน', 'legendDetour', { ph: p.detour2 ? 'เส้นทางเบี่ยงที่ 1' : 'เส้นทางเบี่ยงการจราจร' }) +
+        (p.detour2 ? fld('คำอธิบายเส้นสีม่วง', 'legendDetour2', { ph: 'เส้นทางเบี่ยงที่ 2' }) : '') : '') +
+      (k === 'safety' ? fld('คำอธิบายเขตงาน', 'legendZone', { ph: 'เขตปฏิบัติงาน / ช่องจราจรที่ปิด' }) : '') +
+      (k === 'drain' ? fld('คำอธิบายแนวระบายน้ำ', 'legendDrain', { ph: 'แนวทางระบายน้ำ' }) : '') +
+      fld('ชื่อผัง (ใช้ในรายการ/ชื่อไฟล์)', 'title', { ph: autoTitle(p) }) +
+      '</div>';
+    if (k === 'flood') {
+      tx += '<div class="section-title" style="font-size:14px;margin:12px 0 6px">แบบเตือนภัย (แนวตั้ง)</div><div class="grid grid-2">' +
+        fld('บรรทัดที่ 1', 'alert1', { ph: 'หลีกเลี่ยงเส้นทางน้ำท่วม' }) + fld('บรรทัดที่ 2 (สีเหลือง)', 'alert2', { ph: P.autoAlert2(p) }) + fld('บรรทัดที่ 3', 'alert3', { ph: 'ทั้งฝั่งขาเข้าและขาออก' }) +
+        fld('กล่องเขียว', 'callGo', { ph: 'เส้นทางหลีกเลี่ยงน้ำท่วม' }) + fld('กล่องแดง (บรรทัดล่าง)', 'callNo', { cls: 'span-all', ph: 'บริเวณ' + (p.place || '...') + ' น้ำท่วม' }) + '</div>' +
+        '<div class="section-title" style="font-size:14px;margin:12px 0 6px">แบบอินโฟกราฟิก</div><div class="grid grid-2">' +
+        fld('หัวเรื่อง (สีขาว)', 'info1', { ph: 'เส้นทางเลี่ยงน้ำท่วม' }) + fld('หัวเรื่อง (สีเหลือง)', 'info2', { ph: p.road ? 'ทล.' + p.road : '' }) +
+        fld('คำขวัญใต้หัวเรื่อง', 'infoSub', { cls: 'span-all', ph: '“โปรดตรวจสอบเส้นทางก่อนออกเดินทาง และขับขี่ด้วยความระมัดระวัง”' }) +
+        fld('ขั้นตอนการเดินทาง (1 บรรทัด = 1 ข้อ)', 'steps', { type: 'textarea', rows: 4, ph: P.autoSteps(p) }) +
+        fld('ข้อควรทราบ (1 บรรทัด = 1 ข้อ)', 'notes', { type: 'textarea', rows: 4, ph: P.autoNotes(p) }) +
+        fld('สายด่วน', 'hotline', { ph: 'โทร. 1586' }) + '</div>';
+    }
+    h += sec('text', '✏️ ปรับแต่งข้อความบนผัง', tx);
+
     // ข้อมูลอ้างอิงจากไฟล์ Google Earth ของแขวงฯ
     p.ref = Object.assign({ pts: 'none', sel: [], lbl: true, routes: false, tambon: false, tambonLbl: true }, p.ref);
-    h += '<div class="card"><div class="section-title">🗺️ ข้อมูลอ้างอิงบนแผนที่ <span class="sub">จากไฟล์ Google Earth ของแขวงฯ</span></div><div class="grid grid-2">' +
-      fld('จุดแยก / จุดกลับรถ (U-Turn) ทล.3, ทล.36', 'ref.pts', { type: 'select', cls: 'span-all', options: [{ k: 'none', n: 'ไม่แสดง' }, { k: 'all', n: 'แสดงทุกจุด (' + P.refPts.length + ' จุด)' }, { k: 'sel', n: 'แสดงเฉพาะจุดที่เลือก' }] }) +
-      fld('แสดงชื่อจุดและ กม.', 'ref.lbl', { type: 'checkbox', cls: 'span-all' }) +
+    h += sec('ref', '🗺️ ข้อมูลอ้างอิงบนแผนที่ <span class="muted small">จุดแยก/U-Turn · สายทาง · ขอบเขตตำบล</span>', '<div class="grid grid-3">' +
+      fld('จุดแยก / จุดกลับรถ (U-Turn) ทล.3, ทล.36', 'ref.pts', { type: 'select', options: [{ k: 'none', n: 'ไม่แสดง' }, { k: 'all', n: 'แสดงทุกจุด (' + P.refPts.length + ' จุด)' }, { k: 'sel', n: 'แสดงเฉพาะจุดที่เลือก' }] }) +
+      fld('แสดงชื่อจุดและ กม.', 'ref.lbl', { type: 'checkbox' }) +
       fld('เส้นสายทางควบคุมแขวงฯ', 'ref.routes', { type: 'checkbox' }) +
       fld('ขอบเขตตำบล จ.ระยอง', 'ref.tambon', { type: 'checkbox' }) +
       fld('แสดงชื่อตำบล', 'ref.tambonLbl', { type: 'checkbox' }) + '</div>' +
       '<div id="refList"></div>' +
-      '<p class="hint">ปุ่ม 📍 ของแต่ละจุด: คลิกจุดสีเขียวบนแผนที่เพื่อใช้พิกัด ชื่อ และ กม. ของจุดนั้นได้ทันที · พิมพ์ชื่อจุด เช่น "สี่แยกตะพง" ระบบเติมพิกัดให้เอง</p></div>';
+      '<p class="hint">ปุ่ม 📍 ของแต่ละจุด: คลิกจุดสีเขียวบนแผนที่เพื่อใช้พิกัด ชื่อ และ กม. ของจุดนั้นได้ทันที · พิมพ์ชื่อจุด เช่น "สี่แยกตะพง" ระบบเติมพิกัดให้เอง</p>');
+    h += aiSec;
     // รายชื่อจุดที่เคยลงพิกัด (ให้เลือกตอนพิมพ์ชื่อจุด)
     h += '<datalist id="tpPlaces">' + knownList().map(function (q) { return '<option value="' + esc(q.name) + '">' + esc((q.km ? 'กม.' + q.km + ' · ' : '') + q.lat + ', ' + q.lng) + '</option>'; }).join('') + '</datalist>';
     el.innerHTML = h;
+    el.querySelectorAll('details[data-sec]').forEach(function (d) { d.addEventListener('toggle', function () { S.open[d.dataset.sec] = d.open; }); });
     bindForm(el);
     renderRefList();
     refreshArrPrev();
@@ -539,8 +572,12 @@
     });
     el.querySelectorAll('[data-pick]').forEach(function (b) {
       b.onclick = function () {
-        status('คลิกบนแผนที่ตรงตำแหน่ง "' + b.closest('.pt-row').querySelector('.pt-h').firstChild.textContent + '" หรือคลิกจุดแยก/U-Turn เพื่อใช้พิกัดและชื่อจุดนั้น');
+        // แผนที่อยู่ด้านล่าง: เลื่อนลงไปให้คลิก แล้วเลื่อนกลับมาที่ช่องเดิมเมื่อเลือกเสร็จ
+        const back = window.scrollY;
+        document.querySelector('.ed-right').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        status('👇 คลิกบนแผนที่ตรงตำแหน่ง "' + (b.dataset.label || 'จุด') + '" หรือคลิกจุดแยก/U-Turn เพื่อใช้พิกัดและชื่อจุดนั้น (กด Esc เพื่อยกเลิก)');
         P.pick(function (ll, ref) {
+          setTimeout(function () { window.scrollTo({ top: back, behavior: 'smooth' }); }, 350);
           const path = b.dataset.pick;
           if (ref) {   // คลิกจุดแยก/U-Turn → ใช้ชื่อและ กม. ด้วย (ถ้าช่องยังว่าง)
             const q = getP(S.cur, path);
@@ -563,15 +600,42 @@
     // ช่วงน้ำท่วมเพิ่มเติม: เพิ่ม / ลบ
     if ($('fxAdd')) $('fxAdd').onclick = function () {
       S.cur.floods2 = S.cur.floods2 || [];
-      S.cur.floods2.push({ place: '', a: pt(), b: pt(), via: [] });
+      S.cur.floods2.push({ place: '', depth: '', a: pt(), b: pt(), via: [] });
       markDirty(); renderForm();
-      status('ใส่จุดเริ่ม-จุดสิ้นสุด (พิกัด + กม.) ของช่วงน้ำท่วมที่ ' + (S.cur.floods2.length + 1) + ' แล้วกด ⚡ สร้างผังอัตโนมัติ');
+      status('ใส่ กม. ระดับน้ำ และพิกัดเริ่ม-สิ้นสุด ของจุดน้ำท่วมที่ ' + (S.cur.floods2.length + 1) + ' แล้วกด ⚡ สร้างผังอัตโนมัติ');
+    };
+    if ($('fxRead')) $('fxRead').onclick = applyFloodPaste;
+    if ($('det2Add')) $('det2Add').onclick = function () {
+      S.cur.detour2 = { a: pt(), b: pt(), via: [] };
+      markDirty(); renderForm();
+      status('ใส่จุดแยกออก และจุดกลับเข้า ของทางเบี่ยงที่ 2 แล้วกด ⚡ สร้างผังอัตโนมัติ');
+    };
+    if ($('det2Del')) $('det2Del').onclick = function () {
+      if (!confirm('ลบทางเบี่ยงที่ 2?')) return;
+      P.select(null);
+      S.cur.detour2 = null; delete S.cur.detour2Line; delete S.cur.detour2Len;
+      if (S.cur.pos) { delete S.cur.pos.det2A; delete S.cur.pos.det2B; }
+      markDirty(); renderForm(); P.draw(); refreshLens();
     };
     el.querySelectorAll('[data-fxdel]').forEach(function (b) {
       b.onclick = function () {
-        const i = +b.dataset.fxdel, list = S.cur.floods2;
-        if (!confirm('ลบช่วงน้ำท่วมที่ ' + (i + 2) + '?')) return;
+        const n = +b.dataset.fxdel, i = n - 1, list = S.cur.floods2;
+        if (!confirm('ลบจุดน้ำท่วมที่ ' + (n + 1) + '?')) return;
         P.select(null);
+        if (n === 0) {   // ลบจุดที่ 1 → เลื่อนจุดที่ 2 ขึ้นมาแทน แล้วจัดป้ายใหม่
+          const s = list.shift(), oldRoad = S.cur.road, oldSec = S.cur.section;
+          // จุดที่เว้นสายทางไว้ (= ตามจุดที่ 1 เดิม) ใส่สายทางเดิมให้ชัด ก่อนเปลี่ยนจุดที่ 1
+          list.forEach(function (x) { if (!x.road) { x.road = oldRoad || ''; if (!x.section) x.section = oldSec || ''; } });
+          if (s.road) { S.cur.road = s.road; S.cur.section = s.section || ''; }
+          list.forEach(function (x) { if (x.road === S.cur.road) { x.road = ''; if (x.section === S.cur.section) x.section = ''; } });
+          S.cur.flood = { a: s.a, b: s.b, via: s.via || [], depth: s.depth || '' };
+          S.cur.place = s.place || '';
+          S.cur.floodLine = s.line || ''; S.cur.floodLen = s.len || 0;
+          markDirty(); renderForm();
+          if (linesReady()) P.autoLabels(); else P.draw();
+          refreshLens();
+          return;
+        }
         list.splice(i, 1);
         // เลื่อนตำแหน่งป้ายของช่วงที่อยู่ถัดไปขึ้นมาหนึ่งลำดับ
         const pos = S.cur.pos || {}, np = {};
@@ -679,7 +743,8 @@
     if (p.kind === 'flood') {
       const nx = (p.floods2 || []).filter(function (s) { return P.has(s.a); }).length;
       if (p.floodLine) out.push(nx ? 'ช่วงน้ำท่วม ' + (nx + 1) + ' ช่วง รวม ' + fmtKm(P.floodTotal(p)) : 'ช่วงน้ำท่วม ' + fmtKm(P.floodLength(p)));
-      if (p.detourLen) out.push('ทางเบี่ยง ' + fmtKm(p.detourLen)); }
+      if (p.detourLen) out.push((p.detour2 ? 'ทางเบี่ยงที่ 1 ' : 'ทางเบี่ยง ') + fmtKm(p.detourLen));
+      if (p.detour2 && p.detour2Line && p.detour2Len) out.push('ทางเบี่ยงที่ 2 ' + fmtKm(p.detour2Len)); }
     if (p.kind === 'safety' && p.zoneLine) out.push('เขตงาน ' + fmtKm(P.floodLength(p)), 'อุปกรณ์ ' + (p.devices || []).length + ' ชิ้น');
     if (p.kind === 'drain' && p.drainLine) out.push('แนวระบายน้ำ ' + fmtKm(p.drainLen || 0), 'ระบายลง: ' + (p.drain.b.name || '-'), p.drop != null ? 'ต่างระดับ ~' + (+p.drop).toFixed(1) + ' ม.' : '');
     el.textContent = out.filter(Boolean).join(' · ');
@@ -714,9 +779,55 @@
     const note = (known.length ? ' · ใช้พิกัดที่เคยลงไว้: ' + known.join(', ') : '') + (fromAI && r.remarks ? ' · หมายเหตุจาก AI: ' + r.remarks : '');
     status((miss.length ? 'ยังขาดพิกัด: ' + miss.join(', ') + ' (ใส่เองหรือกด 📍 เลือกบนแผนที่)' : 'กรอกข้อมูลแล้ว ตรวจสอบความถูกต้อง แล้วกด ⚡ สร้างผังอัตโนมัติ') + note, !!miss.length);
   }
+  // วางข้อความรายการจุดน้ำท่วม (หลายจุด) → แทนที่จุดน้ำท่วมทั้งหมด · ทางเบี่ยงที่อ่านได้ใส่ทางเบี่ยงที่ 1 และ 2
+  function applyFloodPaste() {
+    const text = ($('fxPaste').value || '').trim(), p = S.cur;
+    if (!text) { toast('วางข้อความรายการจุดน้ำท่วมก่อน', true); return; }
+    const r = AI.parseFloods(text);
+    if (!r.floods.length && !r.detours.length) { toast('ไม่พบ กม. / ระดับน้ำ / พิกัด ในข้อความ — ดูตัวอย่างในช่อง', true); return; }
+    if (r.floods.length) {
+      const old = P.floodList(p).filter(function (f) { return f.r.a.km || P.has(f.r.a); }).length;
+      if (old && !confirm('แทนที่จุดน้ำท่วมเดิม ' + old + ' จุด ด้วยข้อมูลใหม่ ' + r.floods.length + ' จุด?')) return;
+      const r0 = r.floods[0].road || r.road || p.road, s0 = r.floods[0].section || (r0 === p.road ? p.section : '') || r.section;
+      p.road = r0 || ''; p.section = s0 || '';
+      const segs = r.floods.map(function (f) {
+        // จุดที่อยู่สายทางเดียวกับจุดที่ 1 ไม่ต้องเก็บซ้ำ (เว้นว่าง = ตามจุดที่ 1)
+        const rd = f.road && f.road !== r0 ? f.road : '', sc = f.section && f.section !== s0 ? f.section : '';
+        return { road: rd, section: sc, place: f.place || '', depth: f.depth || '', via: [],
+          a: Object.assign(pt(), f.a || {}, { km: (f.a && f.a.km) || f.kmA || '' }),
+          b: Object.assign(pt(), f.b || {}, { km: (f.b && f.b.km) || f.kmB || '' }) };
+      });
+      const first = segs.shift();
+      p.flood = { a: first.a, b: first.b, via: [], depth: first.depth };
+      if (first.place) p.place = first.place;
+      p.floods2 = segs;
+      p.floodLine = ''; p.floodLen = 0; p.pos = {};
+    }
+    if (!r.floods.length) { if (r.road) p.road = r.road; if (r.section) p.section = r.section; }
+    r.detours.slice(0, 2).forEach(function (d, i) {
+      const key = i ? 'detour2' : 'detour';
+      if (!p[key]) p[key] = { a: pt(), b: pt(), via: [] };
+      if (d.a) Object.assign(p[key].a, d.a);
+      if (d.b) Object.assign(p[key].b, d.b);
+      p[key].via = []; p[key + 'Line'] = '';
+    });
+    const known = fillKnown(p);
+    remember(p); markDirty(); renderForm(); P.draw();
+    if (firstCoord()) P.fit();
+    const miss = missingCoords();
+    status('อ่านได้ ' + r.floods.length + ' จุดน้ำท่วม' + (r.detours.length ? ' · ทางเบี่ยง ' + Math.min(2, r.detours.length) + ' เส้น' : '') +
+      (known.length ? ' · ใช้พิกัดที่เคยลงไว้: ' + known.join(', ') : '') +
+      (miss.length ? ' — ยังขาดพิกัด: ' + miss.join(', ') + ' (ใส่เองหรือกด 📍)' : ' — ตรวจสอบแล้วกด ⚡ สร้างผังอัตโนมัติ'), !!miss.length);
+  }
   function missingCoords() {
-    const p = S.cur, need = p.kind === 'flood' ? [['flood.a', 'จุดเริ่มน้ำท่วม'], ['flood.b', 'จุดสิ้นสุดน้ำท่วม'], ['detour.a', 'จุดแยกออก'], ['detour.b', 'จุดกลับเข้า']]
-      : p.kind === 'safety' ? [['zone.a', 'ต้นเขตงาน'], ['zone.b', 'ปลายเขตงาน']] : [['drain.a', 'จุดน้ำท่วมขัง']];
+    const p = S.cur;
+    let need = p.kind === 'safety' ? [['zone.a', 'ต้นเขตงาน'], ['zone.b', 'ปลายเขตงาน']] : [['drain.a', 'จุดน้ำท่วมขัง']];
+    if (p.kind === 'flood') {
+      need = [['flood.a', 'จุดเริ่มของจุดน้ำท่วมที่ 1'], ['flood.b', 'จุดสิ้นสุดของจุดน้ำท่วมที่ 1']];
+      (p.floods2 || []).forEach(function (s, i) { need.push(['floods2.' + i + '.a', 'จุดเริ่มของจุดน้ำท่วมที่ ' + (i + 2)]); });
+      need.push(['detour.a', 'จุดแยกออกของทางเบี่ยง'], ['detour.b', 'จุดกลับเข้าของทางเบี่ยง']);
+      if (p.detour2) need.push(['detour2.a', 'จุดแยกออกของทางเบี่ยงที่ 2'], ['detour2.b', 'จุดกลับเข้าของทางเบี่ยงที่ 2']);
+    }
     return need.filter(function (n) { return !P.has(getP(p, n[0])); }).map(function (n) { return n[1]; });
   }
 
@@ -769,17 +880,26 @@
         const f = await RT.route([p.flood.a].concat(p.flood.via || [], [p.flood.b]));
         p.floodLine = RT.encode(f.pts); p.floodLen = f.distance;
         // ช่วงน้ำท่วมเพิ่มเติม: มีต้น-ปลาย = ลากเส้นตามถนน · มีจุดเดียว = หมุด
-        const fx = p.floods2 || [];
+        const fx = p.floods2 || [], segs = [f.pts];
         for (let i = 0; i < fx.length; i++) {
           const s = fx[i];
           s.line = ''; s.len = 0;
-          if (!P.has(s.a) || !P.has(s.b)) continue;
-          status('กำลังลากเส้นช่วงน้ำท่วมที่ ' + (i + 2) + ' ตามถนน...');
+          if (!P.has(s.a)) continue;
+          if (!P.has(s.b)) { segs.push([s.a]); continue; }
+          status('กำลังลากเส้นจุดน้ำท่วมที่ ' + (i + 2) + ' ตามถนน...');
           const r = await RT.route([s.a].concat(s.via || [], [s.b]));
           s.line = RT.encode(r.pts); s.len = r.distance;
+          segs.push(r.pts);
         }
-        const d =await RT.autoDetour(p.detour.a, p.detour.b, f.pts, status);
+        // ทางเบี่ยงต้องไม่ผ่านจุดน้ำท่วมใดเลย
+        const d = await RT.autoDetour(p.detour.a, p.detour.b, segs, status);
         p.detourLine = RT.encode(d.pts); p.detourLen = d.distance; p.detour.via = d.via || [];
+        if (p.detour2) {
+          status('กำลังหาทางเบี่ยงที่ 2...');
+          const d2 = await RT.autoDetour(p.detour2.a, p.detour2.b, segs, status);
+          p.detour2Line = RT.encode(d2.pts); p.detour2Len = d2.distance; p.detour2.via = d2.via || [];
+          if (d2.warn && !d.warn) d.warn = 'ทางเบี่ยงที่ 2: ' + d2.warn;
+        }
         if (!p.dirLeft && !p.dirRight && p.section && p.section.indexOf('-') > 0) {
           const s = p.section.split('-').map(function (x) { return x.trim(); });
           p.dirLeft = 'ไป' + s[0]; p.dirRight = 'ไป' + s[1];
@@ -842,10 +962,15 @@
     const road = p.road ? 'ทางหลวงหมายเลข ' + p.road : '';
     if (p.kind === 'flood') {
       const steps = (p.steps || P.autoSteps(p)).split(/\r?\n/).filter(Boolean).map(function (s, i) { return (i + 1) + '. ' + s; }).join('\n');
+      const list = P.floodList(p), multi = list.length > 1 || list.some(function (f) { return f.depth; });
+      const roads = P.roads(p), manyRoads = roads.length > 1;
+      const pts = multi ? list.map(function (f, i) { return '• จุดที่ ' + (i + 1) + ' ' + (P.segKm(p, f) || '') + (manyRoads && f.section ? ' ตอน ' + f.section : '') + (f.place ? ' บริเวณ' + f.place : '') + (f.depth ? ' ' + P.depthTxt(f.depth) : ''); }).join('\n') + '\n' : '';
       return '📢 ' + org + ' ขออภัยในความไม่สะดวก\n' +
-        'เนื่องจากเกิดน้ำท่วมทาง ' + road + (p.section ? ' ตอน ' + p.section : '') + (p.place ? ' บริเวณ' + p.place : '') + (P.kmRangeAll(p) ? ' ' + P.kmRangeAll(p) : '') + (date ? ' (' + date + ')' : '') + '\n' +
+        'เนื่องจากเกิดน้ำท่วมทาง ' + (manyRoads ? 'ทางหลวงหมายเลข ' + roads.join(', ') : road + (p.section ? ' ตอน ' + p.section : '')) + (multi ? ' จำนวน ' + list.length + ' จุด' + (date ? ' (' + date + ')' : '') + '\n' + pts
+          : (p.place ? ' บริเวณ' + p.place : '') + (P.kmRangeAll(p) ? ' ' + P.kmRangeAll(p) : '') + (date ? ' (' + date + ')' : '') + '\n') +
         'ขอให้ผู้ใช้ทางใช้เส้นทางเบี่ยง ดังนี้\n' + steps + '\n' +
-        (p.detourLen ? 'ระยะทางเบี่ยงประมาณ ' + fmtKm(p.detourLen) + '\n' : '') +
+        (p.detourLen ? 'ระยะทางเบี่ยง' + (P.hasDet2(p) ? 'ที่ 1' : '') + 'ประมาณ ' + fmtKm(p.detourLen) + '\n' : '') +
+        (P.hasDet2(p) && p.detour2Len ? 'ระยะทางเบี่ยงที่ 2 ประมาณ ' + fmtKm(p.detour2Len) + '\n' : '') +
         '⚠️ ไม่ขับฝ่าน้ำท่วมที่ไม่ทราบความลึก ปฏิบัติตามป้ายและเจ้าหน้าที่\n☎️ สายด่วนกรมทางหลวง ' + (p.hotline || 'โทร. 1586');
     }
     if (p.kind === 'safety') {

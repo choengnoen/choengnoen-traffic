@@ -110,11 +110,28 @@ table.data tr.clickable:hover td{background:var(--paper-2)}
 .new-card span{font-size:13px;color:var(--ink-soft)}
 
 /* ---------- หน้าแก้ไขผัง ---------- */
-.editor{display:grid;grid-template-columns:420px 1fr;gap:16px;align-items:start}
-@media(max-width:1100px){.editor{grid-template-columns:1fr}}
-.ed-form{max-height:calc(100vh - 150px);overflow-y:auto;padding-right:4px}
-@media(max-width:1100px){.ed-form{max-height:none}}
-.ed-right{position:sticky;top:10px}
+/* กรอกข้อมูลอยู่ด้านบนเต็มความกว้าง · ผังตัวอย่าง/แผนที่อยู่ด้านล่าง */
+.editor{display:block}
+.ed-form{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;align-items:start}
+.ed-form>.wide{grid-column:1/-1}
+@media(max-width:900px){.ed-form{grid-template-columns:1fr}}
+.ed-right{margin-top:4px;scroll-margin-top:8px}
+.ed-right .ed-bar{position:sticky;top:0;z-index:700;background:var(--paper);padding:8px 0;margin-bottom:4px}
+.step-no{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--brand-800);color:#fff;font-size:14px;border:2px solid var(--gold);flex:none}
+.seg{border:1px solid #f0b8b0;border-left:5px solid #e01010;border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fffafa}
+.seg-h{display:flex;align-items:center;gap:8px;font-family:'Kanit',sans-serif;font-weight:600;color:#b71c1c;margin-bottom:6px}
+.seg-h .btn{margin-left:auto}
+.seg .grid-3{grid-template-columns:1fr 1fr 1fr}
+.seg.det{border-color:#b9cdef;border-left-color:#1f6fe0;background:#f7faff}
+.seg.det .seg-h{color:#1c4b73}
+.seg.det2{border-color:#dcc0e6;border-left-color:#9c27b0;background:#fcf7fd}
+.seg.det2 .seg-h{color:#7b1fa2}
+.ll-f label{display:flex;justify-content:space-between;gap:6px}
+.paste-box textarea{min-height:92px;font-size:13.5px}
+.build-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.build-row .btn-lg{width:auto;flex:1;min-width:260px}
+.pz-depth{display:flex;align-items:center;gap:8px;background:#0277bd;color:#fff;border:3px solid #fff;border-radius:10px;padding:3px 16px;font-weight:600;font-size:28px;margin:5px 0;box-shadow:0 2px 7px rgba(0,0,0,.45);white-space:nowrap}
+.pz-depth svg{width:22px;height:28px;flex:none}
 .pt-row{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:#fbfcfd}
 .pt-row .pt-h{font-weight:600;font-size:13px;color:var(--brand-800);margin-bottom:4px;display:flex;justify-content:space-between;align-items:center}
 .pt-row .grid{grid-template-columns:1.4fr 1fr}

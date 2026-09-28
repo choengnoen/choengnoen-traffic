@@ -100,13 +100,21 @@
   }
 
   // หาทางเบี่ยงที่ไม่ผ่านช่วงน้ำท่วม: คืน { pts, distance, via:[จุดบังคับ], overlap, warn }
+  // floodPts = เส้นน้ำท่วมเส้นเดียว หรือหลายเส้น [[...],[...]] (หลายจุดท่วมในสายทางเดียวกัน) — ทางเบี่ยงต้องไม่ผ่านจุดใดเลย
   async function autoDetour(A, B, floodPts, progress) {
     const say = progress || function () {};
     const OK = 0.08;
+    const segs = (floodPts && floodPts.length && Array.isArray(floodPts[0]) ? floodPts : [floodPts || []]).filter(function (s) { return s && s.length; })
+      .map(function (s) { return s.length > 1 ? s : [s[0], s[0]]; });
+    const worst = function (pts) { return segs.reduce(function (m, s) { return Math.max(m, overlap(s, pts)); }, 0); };
     say('กำลังหาเส้นทางเบี่ยง (เส้นทางหลักและเส้นทางสำรอง)...');
-    let cands = (await osrm([A, B], 3)).map(function (r) { return { pts: r.pts, distance: r.distance, via: [], overlap: overlap(floodPts, r.pts) }; });
+    let cands = (await osrm([A, B], 3)).map(function (r) { return { pts: r.pts, distance: r.distance, via: [], overlap: worst(r.pts) }; });
     let good = cands.filter(function (c) { return c.overlap < OK; });
-    if (!good.length && floodPts && floodPts.length > 1) {
+    // อ้อมรอบเฉพาะจุดท่วมที่เส้นทางตรงผ่านจริง
+    const hit = segs.filter(function (s) { return overlap(s, cands[0].pts) >= OK; });
+    const fp = [].concat.apply([], hit.length ? hit : segs);
+    if (!good.length && fp.length > 1) {
+      const floodPts = fp;
       const m = metric(floodPts[0].lat);
       const f0 = m.xy(floodPts[0]), f1 = m.xy(floodPts[floodPts.length - 1]);
       const mid = m.xy(floodPts[Math.floor(floodPts.length / 2)]);
@@ -119,7 +127,7 @@
           const v = m.ll(mid[0] + s * dists[i] * n[0], mid[1] + s * dists[i] * n[1]);
           try {
             const r = (await osrm([A, v, B]))[0];
-            const c = { pts: r.pts, distance: r.distance, via: [r.waypoints[1] || v], overlap: overlap(floodPts, r.pts) };
+            const c = { pts: r.pts, distance: r.distance, via: [r.waypoints[1] || v], overlap: worst(r.pts) };
             cands.push(c);
             if (c.overlap < OK) good.push(c);
           } catch (e) { /* จุดนี้ไม่มีถนน ข้าม */ }

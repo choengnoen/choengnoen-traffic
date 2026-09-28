@@ -91,6 +91,88 @@
     return { road: road, section: section, place: cleanName(place), flood: pair(out.flood), detour: pair(out.detour), zone: pair(out.zone), drain: { a: out.drain[0] || out.flood[0] || null } };
   };
 
+  /* ---------- อ่านรายการจุดน้ำท่วมหลายจุด (สายทางเดียวกัน) ----------
+     รับข้อความแบบ
+       หมายเลขทางหลวง: 3574 ตอนควบคุม บ้านค่าย - ระยอง ช่วง กม.: 44+000 ถึง กม.: 46+000 ระดับน้ำ: 30 เซ็นติเมตร
+       เริ่ม 12.83, 101.29   สิ้นสุด 12.82, 101.30
+       (จุดถัดไป ...)
+       ทางเบี่ยง ... พิกัด ... ถึง ... พิกัด ...
+     คืน { road, section, floods:[{road, section, kmA, kmB, depth, place, a, b}], detours:[{a, b}] } — แต่ละจุดอยู่คนละสายทางได้ — a/b = {name, km, lat, lng} หรือ null */
+  AI.parseFloods = function (text) {
+    const all = String(text || '');
+    const out = { road: '', section: '', floods: [], detours: [] };
+    out.road = (all.match(/(?:หมายเลขทางหลวง|ทางหลวง(?:หมายเลข)?|ทล\.?)\s*:?\s*(\d{1,4})/) || [])[1] || '';
+    const sec = all.match(/ตอน(?:ควบคุม)?\s*:?\s*([^\n,]+?)(?=\s+(?:ช่วง|กม|ระดับ|บริเวณ|พิกัด|จุด|เริ่ม)|\s{2,}|\n|$)/);
+    out.section = sec ? sec[1].replace(/\s*-\s*/g, '-').trim() : '';
+    const KMR = /(\d{1,4})\s*\+\s*(\d{3})\s*(?:ถึง|-|–|—)\s*(?:กม\.?\s*:?\s*)?(\d{1,4})\s*\+\s*(\d{3})/;
+    const DEP = /ระดับ(?:น้ำ)?\s*:?\s*(?:สูง)?\s*(?:ประมาณ)?\s*(\d+(?:\.\d+)?)\s*(ซม|เซ็?น|cm|ม\.|เมตร|m\b)?/i;
+    const coordsIn = function (s) {
+      const res = [], re = /!3d-?\d+\.\d+!4d-?\d+\.\d+|-?\d{1,3}\.\d{3,}\s*[,\s]\s*-?\d{1,3}\.\d{3,}/g;
+      let m;
+      while ((m = re.exec(s))) {
+        const c = AI.coords(m[0]);
+        if (!c) continue;
+        const before = s.slice(Math.max(0, m.index - 25), m.index);
+        c.role = /สิ้นสุด|สุด|ปลาย|ถึง|กลับ|end/i.test(before) ? 'b' : /เริ่ม|ต้น|แยกออก|start/i.test(before) ? 'a' : '';
+        res.push(c);
+      }
+      return res;
+    };
+    const put = function (o, c, nm, k, again) {
+      const p = { name: nm || '', km: k || '', lat: c.lat, lng: c.lng };
+      if (c.role === 'b' && !o.b) o.b = p;
+      else if (c.role !== 'b' && !o.a) o.a = p;
+      else if (!o.b) o.b = p;
+      else { o = again(); o.a = p; }
+      return o;
+    };
+    let ctx = 'flood', cur = null, det = null;
+    const newF = function () { cur = { road: '', section: '', kmA: '', kmB: '', depth: '', place: '', a: null, b: null }; out.floods.push(cur); return cur; };
+    const newD = function () { det = { a: null, b: null }; out.detours.push(det); return det; };
+    all.split(/\r?\n/).forEach(function (line) {
+      const t = line.trim();
+      if (!t) return;
+      const kmr = t.match(KMR), dep = t.match(DEP);
+      const busy = cur && (cur.kmA || cur.a || cur.depth);
+      if (/เบี่ยง|เลี่ยง/.test(t) && !kmr && !dep) {
+        ctx = 'detour';
+        if (!det || (det.a && det.b) || (/ที่\s*\d/.test(t) && (det.a || det.b))) newD();
+      } else if (kmr || dep || /หมายเลขทางหลวง|^ทล\.?\s*\d|^ทางหลวง|ท่วม/.test(t)) {
+        ctx = 'flood';
+        if (!cur || (busy && (/หมายเลขทางหลวง|^ทล\.?\s*\d|^ทางหลวง/.test(t) || /(?:จุด|แห่ง|ช่วง)(?:น้ำท่วม)?ที่\s*\d/.test(t))) ||
+          (kmr && (cur.kmA || (cur.a && cur.b))) || (dep && !kmr && cur.depth)) newF();
+      }
+      const cs = coordsIn(t);
+      const kmOne = (t.match(/(\d{1,4})\s*\+\s*(\d{3})/) || []);
+      const km1 = kmOne[1] ? kmOne[1] + '+' + kmOne[2] : '';
+      if (ctx === 'detour') {
+        if (!det) newD();
+        const nm = cleanName(t.replace(/ทางเบี่ยง(?:ที่\s*\d)?|เส้นทางเลี่ยง|เริ่ม|สิ้นสุด|จุดแยกออก|จุดกลับเข้า(?:ทางหลัก)?|ถึง/g, ' '));
+        cs.forEach(function (c) { det = put(det, c, cs.length === 1 ? nm : '', cs.length === 1 ? km1 : '', newD); });
+        return;
+      }
+      if (!cur) newF();
+      // สายทางของจุดนี้ (1 ผังมีหลายสายทางได้)
+      const rd = t.match(/(?:หมายเลขทางหลวง|ทางหลวง(?:หมายเลข)?|ทล\.?)\s*:?\s*(\d{1,4})(?!\s*\+)/);
+      if (rd) cur.road = rd[1];
+      const sc = t.match(/ตอน(?:ควบคุม)?\s*:?\s*([^\n,]+?)(?=\s+(?:ช่วง|กม|ระดับ|บริเวณ|พิกัด|จุด|เริ่ม)|\s{2,}|$)/);
+      if (sc) cur.section = sc[1].replace(/\s*-\s*/g, '-').trim();
+      if (kmr) { cur.kmA = kmr[1] + '+' + kmr[2]; cur.kmB = kmr[3] + '+' + kmr[4]; }
+      else if (km1) { if (/สิ้นสุด|ปลาย|ถึง/.test(t) || cur.kmA) cur.kmB = cur.kmB || km1; else cur.kmA = km1; }
+      if (dep) { let v = +dep[1]; if (/^(ม\.|เมตร|m)$/i.test(dep[2] || '')) v *= 100; cur.depth = String(Math.round(v)); }
+      const pl = t.match(/บริเวณ\s*:?\s*([^\n,]+?)(?=\s+(?:ช่วง|กม|ระดับ|พิกัด|เริ่ม)|\s{2,}|$)/);
+      if (pl) cur.place = cleanName(pl[1]);
+      cs.forEach(function (c) { cur = put(cur, c, '', '', newF); });
+    });
+    out.floods = out.floods.filter(function (f) { return f.kmA || f.a || f.depth; });
+    out.floods.forEach(function (f) {
+      if (f.a && !f.a.km) f.a.km = f.kmA;
+      if (f.b && !f.b.km) f.b.km = f.kmB;
+    });
+    out.detours = out.detours.filter(function (d) { return d.a || d.b; });
+    return out;
+  };
+
   /* ---------------- 2) AI (Claude) ---------------- */
   const PT = { type: 'object', additionalProperties: false, required: ['name', 'km', 'lat', 'lng'],
     properties: { name: { type: 'string' }, km: { type: 'string' }, lat: { type: ['number', 'null'] }, lng: { type: ['number', 'null'] } } };
