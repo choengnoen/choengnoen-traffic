@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "traffic-plan-fx",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\acer\\AppData\\Local\\Temp\\claude\\D-------------------5------------------------------0------------------------------2-------------------------------4----------------------\\344e1496-ea27-4f25-869d-6fbd417c1621\\scratchpad\\serve.ps1", "-Root", "0. Firebase Project_project-choengnoen (3-3)", "-Port", "8771"],
+      "port": 8771
+    },
+    {
       "name": "traffic-plan",
       "runtimeExecutable": "powershell",
       "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\acer\\AppData\\Local\\Temp\\claude\\D-------------------5------------------------------0------------------------------2-------------------------------4----------------------\\227e6d16-7420-4aa2-b3ed-d6743c046e78\\scratchpad\\serve.ps1", "-Root", "D:\\แขวงทางหลวงระยอง 5. งานหมวด\\หมวดทางหลวงเชิงเนิน\\0. งาน หมวด\\ศูนย์รวมข้อมูลระบบ\\2. งานคุณนันท์นภัสธ์ รัตนเสถียร\\4. ผังจราจรและทางเบี่ยง\\0. Firebase Project_project-choengnoen (3-3)"],
@@ -12,6 +18,24 @@
       "runtimeExecutable": "powershell",
       "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\acer\\AppData\\Local\\Temp\\claude\\D-------------------5------------------------------0------------------------------2-------------------------------4----------------------\\71bf4b5e-603b-438a-862d-9a7b41c11f63\\scratchpad\\serve.ps1", "-Port", "8766"],
       "port": 8766
+    },
+    {
+      "name": "traffic-plan-num",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\acer\\AppData\\Local\\Temp\\claude\\D-------------------5------------------------------0------------------------------2-------------------------------4----------------------\\d0773d24-bb92-4476-8703-514bbdbe15ca\\scratchpad\\serve.ps1", "-Root", "0. Firebase Project_project-choengnoen (3-3)", "-Port", "8772"],
+      "port": 8772
+    },
+    {
+      "name": "traffic-plan-noai",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\acer\\AppData\\Local\\Temp\\claude\\D-------------------5------------------------------0------------------------------2-------------------------------4----------------------\\d15ca285-455a-4754-9e6f-9659ef2ed6f7\\scratchpad\\serve.ps1", "-Root", "0. Firebase Project_project-choengnoen (3-3)", "-Port", "8773"],
+      "port": 8773
+    },
+    {
+      "name": "login-compare",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\acer\\AppData\\Local\\Temp\\claude\\D-------------------5------------------------------0------------------------------2-------------------------------4----------------------\\4a155848-ffb2-4553-89c5-21d94f2291df\\scratchpad\\serve.ps1", "-Port", "8790"],
+      "port": 8790
     }
   ]
 }

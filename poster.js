@@ -198,7 +198,7 @@
   function q(sel) { return sheet.querySelector(sel); }
   function renderStatic() {
     const st = style(), org = plan.org || 'แขวงทางหลวงระยอง', fl = P.floodLength();
-    sheet.className = 'pz-sheet st-' + st + (plan.base === 'street' ? ' tone-street' : '') + (HEADS[plan.head] ? ' hd-' + plan.head : '');
+    sheet.className = 'pz-sheet st-' + st + (HEADS[plan.head] ? ' hd-' + plan.head : '');
     placeBoxes();
     const lg = P.logoSrc(plan);
     sheet.querySelectorAll('img.pz-logo').forEach(function (im) { if (im.getAttribute('src') !== lg) im.src = lg; });
@@ -335,7 +335,6 @@
     const opt = { maxZoom: 20, maxNativeZoom: 19, crossOrigin: 'anonymous' };
     bases = {
       sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', Object.assign({ attribution: '© Esri' }, opt)),
-      street: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', Object.assign({ attribution: '© Esri' }, opt)),
       // แผนที่แบบ Google: ซ่อนหมุดร้านค้า/ร้านอาหาร/โรงแรม (poi.business) และป้ายขนส่ง เหลือหมุดสำคัญ เช่น โรงพยาบาล วัด โรงเรียน หน่วยงานราชการ
       gmap: L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&hl=th&x={x}&y={y}&z={z}&scale=2&apistyle=s.t%3A33%7Cp.v%3Aoff%2Cs.t%3A40%7Cp.v%3Aoff', Object.assign({ attribution: '© Google', subdomains: '0123' }, opt, { maxNativeZoom: 20 }))
     };
@@ -381,6 +380,7 @@
   /* ---------- วาดทั้งหมดจากข้อมูลผัง ---------- */
   P.setPlan = function (p, cb) {
     plan = p; onChange = cb; selected = null; placing = null; refKey = '';
+    if (plan.base === 'street') plan.base = 'gmap';   // ตัวเลือก "แผนที่ถนน" เลิกใช้แล้ว → ใช้แผนที่แบบ Google แทน
     P.setBase(plan.base);
     renderStatic(); P.scale(); map.invalidateSize();
     if (plan.view && plan.view.zoom) map.setView([plan.view.lat, plan.view.lng], plan.view.zoom, { animate: false });
@@ -436,7 +436,18 @@
       m.on('dragend', function () { const l = m.getLatLng(); s.a.lat = +l.lat.toFixed(6); s.a.lng = +l.lng.toFixed(6); P.draw(); changed('coords'); });
       m.addTo(layers);
     });
+    drawFloodNums();
     drawDevices();
+  }
+  // หลายจุดน้ำท่วม: วงแดงมีหมายเลขกลางแต่ละช่วง ขนาดคงที่บนจอ — ซูมออกไกลแค่ไหนก็ยังเห็นตำแหน่ง
+  function drawFloodNums() {
+    const segs = [linePts('flood')].concat(extras().map(function (s, i) { const ep = linePts('fx' + i); return ep.length > 1 ? ep : has(s.a) ? [s.a] : []; }));
+    if (segs.length < 2) return;
+    segs.forEach(function (pts, i) {
+      if (!pts.length) return;
+      L.marker(LL(mid(pts)), { interactive: false, keyboard: false, zIndexOffset: 700,
+        icon: L.divIcon({ className: 'pz-fnum', iconSize: [72, 72], iconAnchor: [36, 36], html: '<div><b>' + (i + 1) + '</b></div>' }) }).addTo(layers);
+    });
   }
   // ลูกศรบอกทิศบนเส้น (แบบเตือนภัย / อินโฟกราฟิก)
   function drawChevrons() {
