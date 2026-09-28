@@ -32,7 +32,12 @@
   }
   function bindPw(root) {
     root.querySelectorAll('.pw-toggle').forEach(function (b) {
-      b.onclick = function () { const i = $(b.dataset.target); if (i) i.type = i.type === 'password' ? 'text' : 'password'; };
+      // แบบเดียวกับระบบรายงานประจำเดือน: กดแล้วสลับรูป 👁 / 🙈 และคงเคอร์เซอร์ไว้ในช่อง
+      b.onclick = function () {
+        const i = $(b.dataset.target); if (!i) return;
+        const show = i.type === 'password';
+        i.type = show ? 'text' : 'password'; b.textContent = show ? '🙈' : '👁'; i.focus();
+      };
     });
   }
   function today() { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
@@ -135,30 +140,32 @@
   /* ======================= ล็อกอิน ======================= */
   let teamLoadError = '', appStarted = false;
   function hideLoading() { $('pageLoadingOverlay').classList.add('hide'); }
-  function gateError(msg) { const el = $('gateError'); if (el) { el.textContent = msg; el.style.display = 'block'; } }
+  function gateError(msg) { const el = $('gateError'); if (el) el.textContent = msg; }
+  // หน้าล็อกอิน — โครงสร้างและคลาสเดียวกับระบบรายงานประจำเดือน (สไตล์อยู่ใน index.html หัวข้อ "หน้าล็อกอิน")
   function renderGate(errorMsg) {
     const g = $('authGate'); hideLoading(); g.classList.add('show');
     $('appHeader').style.display = 'none'; $('main').style.display = 'none';
-    const head = '<img src="logo.png" alt="ตรากรมทางหลวง" class="auth-logo"><h2>ระบบผังจราจรและทางเบี่ยง</h2><p class="auth-sub">หมวดทางหลวงเชิงเนิน · แขวงทางหลวงระยอง</p>';
-    const demo = FBL.mode === 'demo' ? '<div class="auth-demo">โหมดทดลอง: ข้อมูลเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น (ใช้งานจริงให้เปิดจากเว็บที่อัปโหลดแล้ว)</div>' : '';
-    const err = '<p class="hint auth-error" id="gateError" style="' + (errorMsg ? '' : 'display:none') + '">' + esc(errorMsg || '') + '</p>';
+    const demo = FBL.mode === 'demo' ? '<div class="demo-note"><b>โหมดทดลอง</b> — ข้อมูลเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น (ใช้งานจริงให้เปิดจากเว็บที่อัปโหลดแล้ว)</div>' : '';
+    const head = '<img src="logo.png" alt="ตรากรมทางหลวง"><h1>งานผังจราจร</h1><p class="sub">หมวดทางหลวงเชิงเนิน · แขวงทางหลวงระยอง</p>' + demo;
+    const err = '<div class="err" id="gateError">' + esc(errorMsg || '') + '</div>';
     if (teamLoadError) {
-      g.innerHTML = '<div class="auth-card">' + head + '<h3 class="auth-h3">เชื่อมต่อฐานข้อมูลไม่สำเร็จ</h3><p class="hint auth-error">' + esc(teamLoadError) + '</p><button class="btn btn-primary auth-btn" id="gateRetry">ลองอีกครั้ง</button></div>';
+      g.innerHTML = '<div class="login-card">' + head + '<form onsubmit="return false"><h3 class="login-h3">เชื่อมต่อฐานข้อมูลไม่สำเร็จ</h3><div class="err">' + esc(teamLoadError) + '</div><button class="btn btn-primary" type="button" id="gateRetry">ลองอีกครั้ง</button></form></div>';
       $('gateRetry').onclick = function () { location.reload(); };
       return;
     }
     if (!S.team.length) {
       if (FBL.mode !== 'demo') {
-        g.innerHTML = '<div class="auth-card">' + head + '<h3 class="auth-h3">ยังไม่มีผู้ใช้งาน</h3><p class="hint">ระบบนี้ใช้รายชื่อผู้ใช้ร่วมกับระบบ "ผู้ควบคุมงานโครงการ" กรุณาตั้งเจ้าของระบบและเพิ่มผู้ใช้ที่ระบบนั้นก่อน</p></div>';
+        g.innerHTML = '<div class="login-card">' + head + '<form onsubmit="return false"><h3 class="login-h3">ยังไม่มีผู้ใช้งาน</h3><p class="note">ระบบนี้ใช้รายชื่อผู้ใช้ร่วมกับระบบ "งานควบคุมงานโครงการ" กรุณาตั้งเจ้าของระบบและเพิ่มผู้ใช้ที่ระบบนั้นก่อน</p></form></div>';
         return;
       }
-      g.innerHTML = '<div class="auth-card">' + head + '<h3 class="auth-h3">ตั้งค่าเจ้าของระบบ (โหมดทดลอง)</h3>' +
-        '<div class="field"><label>ชื่อ-นามสกุลของคุณ</label><input type="text" id="gName" autocomplete="off"></div>' +
-        '<div class="field"><label>ตั้งรหัสผ่าน (อย่างน้อย 8 ตัวอักษร)</label>' + pwField('gP1') + '</div>' +
-        '<div class="field"><label>ยืนยันรหัสผ่าน</label>' + pwField('gP2') + '</div>' + err +
-        '<button class="btn btn-primary auth-btn" id="gClaim">ตั้งค่าและเข้าสู่ระบบ</button>' + demo + '</div>';
+      g.innerHTML = '<div class="login-card">' + head + '<form id="gForm"><h3 class="login-h3">ตั้งค่าเจ้าของระบบ (โหมดทดลอง)</h3>' +
+        '<div><label class="f" for="gName">ชื่อ-นามสกุลของคุณ</label><input type="text" id="gName" autocomplete="off"></div>' +
+        '<div><label class="f" for="gP1">ตั้งรหัสผ่าน (อย่างน้อย 8 ตัวอักษร)</label>' + pwField('gP1') + '</div>' +
+        '<div class="login-pw"><label class="f" for="gP2">ยืนยันรหัสผ่าน</label>' + pwField('gP2') + '</div>' + err +
+        '<button class="btn btn-primary" type="submit" id="gClaim">ตั้งค่าและเข้าสู่ระบบ</button></form></div>';
       bindPw(g);
-      $('gClaim').onclick = async function () {
+      $('gForm').onsubmit = async function (ev) {
+        ev.preventDefault();
         const n = $('gName').value.trim(), p1 = $('gP1').value, p2 = $('gP2').value;
         if (!n || !p1) return gateError('กรอกชื่อและรหัสผ่านให้ครบ');
         if (p1.length < 8) return gateError('รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร');
@@ -168,24 +175,23 @@
       };
       return;
     }
-    g.innerHTML = '<div class="auth-card">' + head + '<h3 class="auth-h3">เข้าสู่ระบบ</h3>' +
-      '<div class="field"><label>ชื่อผู้ใช้งาน</label><select id="gSel"><option value="">— เลือกชื่อของคุณ —</option>' +
+    g.innerHTML = '<div class="login-card">' + head + '<form id="gForm"><h3 class="login-h3">เข้าสู่ระบบ</h3>' +
+      '<div><label class="f" for="gSel">ชื่อผู้ใช้งาน</label><select id="gSel"><option value="">— เลือกชื่อของคุณ —</option>' +
       S.team.map(function (m) { return '<option value="' + esc(m.name) + '">' + esc(m.name) + '</option>'; }).join('') + '</select></div>' +
-      '<div class="field"><label>รหัสผ่าน</label><input type="text" id="gShadow" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">' + pwField('gPass', 'current-password') + '</div>' +
-      err + '<button class="btn btn-primary auth-btn" id="gOk">เข้าสู่ระบบ</button>' +
-      '<p class="hint" style="margin:12px 0 0;text-align:left">ใช้ชื่อและรหัสผ่านเดียวกับระบบผู้ควบคุมงานโครงการ</p>' + demo + '</div>';
+      '<div class="login-pw"><label class="f" for="gPass">รหัสผ่าน</label><input type="text" id="gShadow" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">' + pwField('gPass', 'current-password') + '</div>' +
+      err + '<button class="btn btn-primary" type="submit" id="gOk">เข้าสู่ระบบ</button></form></div>';
     bindPw(g);
     const sel = $('gSel'), sh = $('gShadow');
     sel.onchange = function () { sh.value = sel.value; };
     sh.oninput = function () { if ([].some.call(sel.options, function (o) { return o.value === sh.value; })) sel.value = sh.value; };
-    const login = async function () {
+    $('gForm').onsubmit = async function (ev) {
+      ev.preventDefault();
+      gateError('');
       if (!sel.value) return gateError('เลือกชื่อของคุณก่อน');
       if (!$('gPass').value) return gateError('กรอกรหัสผ่าน');
-      const done = busy($('gOk'), 'กำลังตรวจสอบ...');
+      const done = busy($('gOk'), 'กำลังเข้าสู่ระบบ…');
       try { await FBL.login(sel.value, $('gPass').value); } catch (e) { done(); gateError(e.message); }
     };
-    $('gOk').onclick = login;
-    $('gPass').onkeydown = function (e) { if (e.key === 'Enter') login(); };
   }
   function onAuth(user, errorMsg) {
     if (!user) { appStarted = false; renderGate(errorMsg); return; }
@@ -834,12 +840,12 @@
       '<div class="grid grid-2"><div class="field"><label>Anthropic API key</label>' + pwField('aiKey', 'off') + '<span class="hint">สร้างที่ console.anthropic.com (จ่ายตามการใช้งาน) · ไม่ใส่ก็ใช้ระบบได้ครบ ยกเว้นปุ่ม 🤖</span></div>' +
       '<div class="field"><label>โมเดล</label><select id="aiModel">' + AI.MODELS.map(function (m) { return '<option value="' + m.key + '"' + ((c.model || 'claude-opus-5') === m.key ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div></div>' +
       '<div class="flex" style="margin-top:12px"><button class="btn btn-primary" id="aiSave">บันทึก</button><button class="btn btn-outline" id="aiTest">ทดสอบการเชื่อมต่อ</button><button class="btn btn-ghost" id="aiClear">ลบ key ออกจากเครื่องนี้</button></div></div>' +
-      '<div class="card" style="max-width:820px"><div class="section-title">🔑 เปลี่ยนรหัสผ่านของฉัน <span class="sub">ใช้ร่วมกับระบบผู้ควบคุมงานโครงการ</span></div>' +
+      '<div class="card" style="max-width:820px"><div class="section-title">🔑 เปลี่ยนรหัสผ่านของฉัน <span class="sub">ใช้ร่วมกับระบบงานควบคุมงานโครงการ</span></div>' +
       '<div class="grid grid-2"><div class="field"><label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</label>' + pwField('pw1') + '</div><div class="field"><label>ยืนยันรหัสผ่านใหม่</label>' + pwField('pw2') + '</div></div>' +
       '<div class="flex" style="margin-top:12px"><button class="btn btn-primary" id="pwSave">เปลี่ยนรหัสผ่าน</button></div></div>' +
       '<div class="card" style="max-width:820px"><div class="section-title">🗄️ ฐานข้อมูล</div>' +
-      '<p class="small" style="margin:0 0 6px">ใช้ฐานข้อมูลเดียวกับระบบ <b>ผู้ควบคุมงานโครงการ</b> (Firebase: choengnoen-project) — ผังเก็บแยกหมวด <code>traffic_plans</code> ไม่ปนกับข้อมูลโครงการ</p>' +
-      '<p class="small" style="margin:0 0 6px">เพิ่ม/ลบผู้ใช้งาน และตั้งผู้ดูแลระบบ ทำที่ระบบผู้ควบคุมงานโครงการ (แท็บตั้งค่า) รายชื่อจะใช้ได้ทั้งสองระบบทันที</p>' +
+      '<p class="small" style="margin:0 0 6px">ใช้ฐานข้อมูลเดียวกับระบบ <b>งานควบคุมงานโครงการ</b> (Firebase: choengnoen-project) — ผังเก็บแยกหมวด <code>traffic_plans</code> ไม่ปนกับข้อมูลโครงการ</p>' +
+      '<p class="small" style="margin:0 0 6px">เพิ่ม/ลบผู้ใช้งาน และตั้งผู้ดูแลระบบ ทำที่ระบบงานควบคุมงานโครงการ (แท็บตั้งค่า) รายชื่อจะใช้ได้ทั้งสองระบบทันที</p>' +
       '<p class="small" style="margin:0">ผังที่ไม่ใช้แล้ว: รายการผัง → ลบ (ย้ายไปถังขยะ) → ถังขยะ → ลบถาวร (เจ้าของระบบ/ผู้ดูแลระบบ)</p>' +
       (FBL.mode === 'demo' ? '<div class="flex" style="margin-top:10px"><button class="btn btn-danger" id="demoReset">ล้างข้อมูลทดลองทั้งหมด</button></div>' : '') + '</div>';
     bindPw(el);
