@@ -47,7 +47,8 @@
       'auth/user-not-found': 'ไม่พบบัญชีนี้ในระบบ',
       'auth/too-many-requests': 'ลองผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่',
       'auth/network-request-failed': 'เชื่อมต่ออินเทอร์เน็ตไม่ได้ ตรวจสอบสัญญาณแล้วลองใหม่',
-      'auth/weak-password': 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร',
+      'auth/weak-password': 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร',
+      'auth/password-does-not-meet-requirements': 'รหัสผ่านไม่ตรงตามเงื่อนไขความปลอดภัยของระบบ (ยาวอย่างน้อย 8 ตัวอักษร)',
       'auth/requires-recent-login': 'กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่ก่อนเปลี่ยนรหัสผ่าน',
       'auth/unauthorized-domain': 'โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase (Authentication → Settings → Authorized domains)',
       'permission-denied': 'ไม่มีสิทธิ์ทำรายการนี้ (ตรวจสอบว่าได้วางกฎ firestore.rules ชุดล่าสุดที่มีส่วน traffic_plans แล้ว)',
@@ -82,6 +83,12 @@
     if (isNew) { r.createdAt = r.createdAt || r.updatedAt; r.createdBy = r.createdBy || r.updatedBy; }
     return r;
   }
+  // รหัสผ่านที่ตั้ง/เปลี่ยนใหม่ ต้องยาวอย่างน้อย 8 ตัว (คนที่ใช้รหัสเดิมอยู่ไม่ถูกบังคับ — ตรวจเฉพาะตอนตั้งใหม่)
+  const MIN_PASSWORD = 8;
+  function requireNewPassword(p) {
+    if (String(p || '').length < MIN_PASSWORD) throw new Error('รหัสผ่านต้องยาวอย่างน้อย ' + MIN_PASSWORD + ' ตัวอักษร');
+  }
+  FBL.minPassword = MIN_PASSWORD;
   function requirePrivileged() { if (!FBL.user || !(FBL.user.isOwner || FBL.user.isAdmin)) throw new Error('เฉพาะเจ้าของระบบหรือผู้ดูแลระบบเท่านั้น'); }
   function sortTeam(t) {
     t.sort(function (a, b) { return (b.isOwner ? 1 : 0) - (a.isOwner ? 1 : 0) || String(a.name).localeCompare(String(b.name), 'th'); });
@@ -102,9 +109,35 @@
     const db = firebase.firestore();
     try { db.enablePersistence({ synchronizeTabs: true }).catch(function () { /* ใช้ไม่ได้ก็ข้าม */ }); } catch (e) { /* ข้าม */ }
 
+    /* ---------- สมุดชื่อล็อกอิน (login_directory) — แผน 6 ----------
+       หน้าล็อกอินอ่านรายชื่อได้ก่อนล็อกอิน จึงอ่านเฉพาะ ชื่อ → อีเมลสังเคราะห์ (ไม่มีสถานะเจ้าของ/ผู้ดูแล) จากสมุดชื่อ
+       เจ้าของระบบเป็นผู้กดย้ายรายชื่อที่ระบบ "ผู้ควบคุมงานโครงการ"/"หนังสือราชการ" (ใช้ฐานข้อมูลชุดเดียวกัน) — ก่อนย้าย ทุกอย่างทำงานแบบเดิม */
+    const DIR_READY_ID = '_ready';
+    async function readLoginDirectory() {
+      const snap = await db.collection('login_directory').get();
+      let ready = false;
+      const list = [];
+      snap.docs.forEach(function (d) {
+        if (d.id === DIR_READY_ID) { ready = true; return; }
+        const v = d.data();
+        if (v && v.name && v.email) list.push({ uid: d.id, name: v.name, email: v.email });
+      });
+      return { ready: ready, list: list };
+    }
+    // ก่อนล็อกอิน: อ่านสมุดชื่อ · หลังล็อกอิน: อ่านตาราง team เต็ม
     FBL.loadTeam = async function () {
-      const snap = await db.collection('team').get();
-      team = sortTeam(snap.docs.map(function (d) { return Object.assign({ uid: d.id }, d.data()); }));
+      let list = null;
+      if (!FBL.user) {
+        try {
+          const dir = await readLoginDirectory();
+          if (dir.ready) list = dir.list;
+        } catch (e) { /* ยังไม่ได้ประกาศกฎชุดใหม่ — อ่านจาก team แบบเดิม */ }
+      }
+      if (!list) {
+        const snap = await db.collection('team').get();
+        list = snap.docs.map(function (d) { return Object.assign({ uid: d.id }, d.data()); });
+      }
+      team = sortTeam(list);
       return team.slice();
     };
 
@@ -118,6 +151,7 @@
             cb(null, 'บัญชีนี้ไม่ได้อยู่ในรายชื่อผู้ใช้งาน กรุณาติดต่อเจ้าของระบบ'); return;
           }
           FBL.user = { uid: u.uid, name: d.data().name, isOwner: !!d.data().isOwner, isAdmin: !!d.data().isAdmin };
+          try { await FBL.loadTeam(); } catch (e) { /* ข้าม — หน้าเว็บโหลดรายชื่อซ้ำเองอีกครั้ง */ }   // ล็อกอินแล้วอ่านตาราง team เต็มได้ (มีสถานะเจ้าของ/ผู้ดูแล)
           cb(FBL.user);
         } catch (e) { FBL.user = null; cb(null, thErr(e)); }
       });
@@ -129,7 +163,130 @@
       try { await auth.signInWithEmailAndPassword(m.email, password); } catch (e) { throw new Error(thErr(e)); }
     };
     FBL.logout = async function () { if (unsub) unsub(); await auth.signOut(); };
+
+    /* ==== IDLE-GUARD v1 — ออกจากระบบอัตโนมัติเมื่อไม่ได้ใช้งาน + ล้างข้อมูลแคชในเครื่อง (โค้ดชุดเดียวกันทุกระบบ ห้ามแก้เฉพาะระบบ) ====
+       - นับเวลาจากเมาส์/แป้นพิมพ์/แตะจอ รวมทุกแท็บของระบบเดียวกัน (แชร์ผ่าน localStorage)
+       - เตือนก่อนออก (ไม่ขัดจังหวะ ไม่ดึงโฟกัสจากช่องที่กำลังพิมพ์) แล้วออกจากระบบ: signOut → terminate → clearPersistence → โหลดหน้าใหม่
+       - ทดสอบ: ตั้ง localStorage 'fbl_idle_test' = "วินาทีออก,วินาทีเตือน" (ใช้ได้เฉพาะ "ลดเวลา" ลง ไม่ทำให้ยาวขึ้น) */
+    (function (FBL, auth, db, pid) {
+      var IDLE_MIN = 60, WARN_MIN = 5;
+      var idleMs = IDLE_MIN * 60000, warnMs = WARN_MIN * 60000;
+      try {
+        var tst = String(localStorage.getItem('fbl_idle_test') || '').split(',');
+        if (+tst[0] > 0) { idleMs = Math.min(idleMs, +tst[0] * 1000); warnMs = Math.min(warnMs, (+tst[1] > 0 ? +tst[1] : +tst[0] / 3) * 1000, idleMs - 1000); }
+      } catch (e) { /* ข้าม */ }
+      var K_ACT = 'fbl_idle_act_' + pid, K_OUT = 'fbl_idle_out_' + pid, K_DONE = 'fbl_idle_done_' + pid;
+      var lastLocal = 0, lastWrite = 0, warnEl = null, shield = null, leaving = false, inFlight = null, leader = false;
+
+      function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+      function lsGet(k) { try { return +localStorage.getItem(k) || 0; } catch (e) { return 0; } }
+      function lsSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (e) { /* ข้าม */ } }
+      function lastActive() { return Math.max(lastLocal, lsGet(K_ACT)); }
+      function touch() {
+        var n = Date.now(); lastLocal = n;
+        if (n - lastWrite > 3000) { lastWrite = n; lsSet(K_ACT, n); }
+        if (warnEl) hideWarn();
+      }
+      var staleOnLoad = lsGet(K_ACT) > 0 && Date.now() - lsGet(K_ACT) >= idleMs; // เปิดหน้าขึ้นมาตอนที่ค้างไม่ได้ใช้งานเกินกำหนดแล้ว
+      if (!lsGet(K_ACT)) lsSet(K_ACT, Date.now()); // ครั้งแรกที่ใช้ระบบนี้ในเครื่อง — ยังไม่มีบันทึก ถือว่าเริ่มนับจากตอนนี้
+
+      /* ---------- กล่องเตือน ---------- */
+      function dirtyCount() {
+        var n = 0;
+        try {
+          var els = document.querySelectorAll('input:not([type=password]):not([type=hidden]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]),textarea');
+          for (var i = 0; i < els.length; i++) { var el = els[i]; if (el.offsetParent !== null && !el.readOnly && !el.disabled && el.value !== el.defaultValue) n++; }
+        } catch (e) { /* ข้าม */ }
+        return n;
+      }
+      function fmt(ms) { var s = Math.max(0, Math.ceil(ms / 1000)), m = Math.floor(s / 60); return m + ':' + ('0' + (s % 60)).slice(-2); }
+      function showWarn(left) {
+        if (!warnEl) {
+          warnEl = document.createElement('div');
+          warnEl.setAttribute('role', 'alert');
+          warnEl.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483000;max-width:340px;background:#fff8e1;color:#4a3300;border:2px solid #f59e0b;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.35);padding:14px 16px;font:14px/1.5 system-ui,"Sarabun","Noto Sans Thai",sans-serif';
+          warnEl.innerHTML = '<div style="font-weight:700;margin-bottom:4px">⏱ ไม่มีการใช้งานสักครู่</div>' +
+            '<div>ระบบจะออกจากระบบอัตโนมัติใน <b data-idle-left></b> เพื่อความปลอดภัยของข้อมูล</div>' +
+            '<div data-idle-dirty style="display:none;margin-top:6px;color:#b45309;font-weight:600"></div>' +
+            '<button type="button" data-idle-stay style="margin-top:10px;width:100%;padding:8px;border:0;border-radius:8px;background:#f59e0b;color:#fff;font:inherit;font-weight:700;cursor:pointer">ยังใช้งานอยู่ — อยู่ต่อ</button>';
+          warnEl.querySelector('[data-idle-stay]').onclick = function () { touch(); };
+          // ไม่ดึงโฟกัสออกจากช่องที่กำลังพิมพ์: กดปุ่มนี้ด้วยเมาส์ไม่ย้ายโฟกัส
+          warnEl.addEventListener('mousedown', function (e) { e.preventDefault(); });
+          (document.body || document.documentElement).appendChild(warnEl);
+        }
+        warnEl.querySelector('[data-idle-left]').textContent = fmt(left);
+        var d = dirtyCount(), dEl = warnEl.querySelector('[data-idle-dirty]');
+        if (d > 0) { dEl.style.display = 'block'; dEl.textContent = 'อาจมีข้อมูลที่กรอกค้างอยู่ ' + d + ' ช่อง — กดบันทึกก่อนครบเวลา ไม่เช่นนั้นข้อมูลจะหาย'; }
+        else dEl.style.display = 'none';
+      }
+      function hideWarn() { if (warnEl) { warnEl.remove(); warnEl = null; } }
+      function showShield() {
+        if (shield) return;
+        shield = document.createElement('div');
+        shield.style.cssText = 'position:fixed;inset:0;z-index:2147483600;background:#0b2540;color:#fff;display:flex;align-items:center;justify-content:center;font:600 18px system-ui,"Sarabun","Noto Sans Thai",sans-serif';
+        shield.textContent = 'กำลังออกจากระบบและล้างข้อมูลในเครื่อง...';
+        (document.body || document.documentElement).appendChild(shield);
+      }
+
+      /* ---------- ออกจากระบบ + ล้างแคช ---------- */
+      async function wipe() {
+        try { await db.terminate(); } catch (e) { /* ข้าม */ }
+        for (var i = 0; i < 8; i++) {
+          try { await db.clearPersistence(); return true; } catch (e) { await sleep(500); }
+        }
+        console.warn('ล้างแคชในเครื่องไม่สำเร็จ (อาจมีแท็บอื่นเปิดระบบนี้ค้างอยู่)');
+        return false;
+      }
+      var origLogout = FBL.logout;
+      FBL.logout = function () {
+        if (inFlight) return inFlight;
+        var args = arguments;
+        leaving = true; leader = true; FBL._leaving = true;
+        hideWarn(); showShield();
+        inFlight = (async function () {
+          setTimeout(function () { location.reload(); }, 25000); // กันค้าง
+          lsSet(K_OUT, Date.now());                    // บอกแท็บอื่นของระบบนี้ให้ปิดฐานข้อมูล (ไม่งั้นล้างแคชไม่ได้)
+          // ส่งข้อมูลที่ค้างรอส่งขึ้นเซิร์ฟเวอร์ให้เสร็จก่อน ไม่งั้นการล้างแคชจะทำให้ข้อมูลที่เพิ่งบันทึกตอนออฟไลน์หาย
+          try { await Promise.race([db.waitForPendingWrites(), sleep(5000)]); } catch (e) { /* ข้าม */ }
+          try { await origLogout.apply(FBL, args); } catch (e) { /* ข้าม */ }
+          try { await auth.signOut(); } catch (e) { /* ข้าม */ }
+          await wipe();
+          lsSet(K_DONE, Date.now());
+          location.reload();
+          await new Promise(function () { });          // ไม่ให้โค้ดหลังปุ่มออกจากระบบทำงานต่อระหว่างโหลดหน้าใหม่
+        })();
+        return inFlight;
+      };
+
+      // แท็บอื่นของระบบเดียวกัน: ปิดฐานข้อมูลแล้วรอแท็บที่กดออกล้างเสร็จ จึงโหลดใหม่
+      window.addEventListener('storage', function (e) {
+        if (e.key === K_OUT && e.newValue && !leader && !leaving) {
+          leaving = true; FBL._leaving = true; showShield();
+          try { db.terminate().catch(function () { }); } catch (x) { /* ข้าม */ }
+          setTimeout(function () { location.reload(); }, 15000);
+        } else if (e.key === K_DONE && e.newValue && !leader && leaving) {
+          location.reload();
+        }
+      });
+
+      /* ---------- นับเวลาไม่ใช้งาน ---------- */
+      ['mousemove', 'mousedown', 'pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll', 'click'].forEach(function (t) {
+        window.addEventListener(t, touch, { passive: true, capture: true });
+      });
+      // เหตุการณ์ล็อกอินครั้งแรกหลังเปิดหน้า: ถ้าเป็นเซสชันเก่าที่ค้างมานานเกินกำหนด ให้ออกจากระบบทันที (ไม่ให้แค่ขยับเมาส์แล้วเข้าได้เลย)
+      auth.onAuthStateChanged(function (u) { if (u && staleOnLoad && !leaving) FBL.logout(); staleOnLoad = false; });
+      function tick() {
+        if (leaving || !auth.currentUser) { if (!auth.currentUser) hideWarn(); return; }
+        var idle = Date.now() - lastActive();
+        if (idle >= idleMs) FBL.logout();
+        else if (idle >= idleMs - warnMs) showWarn(idleMs - idle);
+        else if (warnEl) hideWarn();
+      }
+      setInterval(tick, 1000);
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });
+    })(FBL, auth, db, firebaseConfig.projectId);
     FBL.changeMyPassword = async function (pw) {
+      requireNewPassword(pw);
       try { await auth.currentUser.updatePassword(pw); } catch (e) { throw new Error(thErr(e)); }
     };
 
