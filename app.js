@@ -279,9 +279,10 @@
     };
     el.querySelectorAll('tr[data-id]').forEach(function (tr) {
       const p = S.plans.find(function (x) { return x.id === tr.dataset.id; });
-      tr.onclick = async function (e) {
+      tr.ondblclick = function (e) { if (e.target.closest('button,a,input,select,textarea') || (e.target.dataset && e.target.dataset.act)) return; if (!S.trash) openPlan(JSON.parse(JSON.stringify(p))); };
+    tr.onclick = async function (e) {
         const act = e.target.dataset && e.target.dataset.act;
-        if (!act) { if (!S.trash) openPlan(JSON.parse(JSON.stringify(p))); return; }
+        if (!act) return; // เปิดผังด้วยการดับเบิลคลิก (ดูบรรทัดบน)
         e.stopPropagation();
         if (act === 'dup') { const c = JSON.parse(JSON.stringify(p)); ['id', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'].forEach(function (k) { delete c[k]; }); c.title = titleOf(p) + ' (สำเนา)'; c.date = today(); openPlan(c); }
         if (act === 'del' && await UI.confirm('ลบผัง ?', { msg: 'ย้าย "' + titleOf(p) + '" ไปที่ "ถังขยะ" (กู้คืนได้)', danger: true })) FBL.softDeletePlan(p).then(function () { toast('ย้ายไปถังขยะแล้ว'); }, function (er) { toast(er.message, true); });
