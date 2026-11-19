@@ -142,7 +142,12 @@
     };
 
     FBL.onAuth = function (cb) {
+      let authSeen = false;
+      // กันหน้าค้างตลอดไปถ้า Firebase ตรวจสถานะล็อกอินช้าผิดปกติ (เช่น iframe ช่วยซิงก์สถานะโหลดไม่ทัน) — รอ 6 วินาทีแล้วถือว่ายังไม่ได้ล็อกอินไปก่อน
+      // ถ้าจริงๆ ยังล็อกอินค้างอยู่ ตัวจัดการด้านล่างจะยิง cb(user) ซ้ำให้เองเมื่อสถานะมาถึงภายหลัง
+      setTimeout(function () { if (!authSeen) cb(null); }, 6000);
       auth.onAuthStateChanged(async function (u) {
+        authSeen = true;
         if (!u) { FBL.user = null; cb(null); return; }
         try {
           const d = await db.collection('team').doc(u.uid).get();
